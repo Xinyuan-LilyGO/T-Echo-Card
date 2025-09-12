@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-09-12 15:46:53
+ * @LastEditTime: 2025-09-12 16:45:55
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,11 +25,6 @@
 #define ZD25WQ32C_IO2 _PINNUM(1, 9)
 #define ZD25WQ32C_IO3 _PINNUM(0, 26)
 
-// LED
-#define LED_1 _PINNUM(1, 7)
-#define LED_2 _PINNUM(1, 5)
-#define LED_3 _PINNUM(1, 14)
-
 // GDEM0122T16
 #define SCREEN_WIDTH 176
 #define SCREEN_HEIGHT 192
@@ -46,6 +41,9 @@
 // BOOT
 #define nRF52840_BOOT _PINNUM(0, 24)
 
+// key
+#define KEY_1 _PINNUM(1, 10)
+
 // Battery
 #define BATTERY_MEASUREMENT_CONTROL _PINNUM(0, 31)
 #define BATTERY_ADC_DATA _PINNUM(0, 2)
@@ -58,12 +56,6 @@
 #define GPS_1PPS _PINNUM(0, 23)
 #define GPS_UART_TX _PINNUM(0, 21)
 #define GPS_UART_RX _PINNUM(0, 19)
-
-// ICM20948
-#define ICM20948_ADDRESS 0x68
-#define ICM20948_SDA IIC_1_SDA
-#define ICM20948_SCL IIC_1_SCL
-#define ICM20948_INT _PINNUM(0, 16)
 
 // buzzer
 #define BUZZER_DATA _PINNUM(1, 6)
@@ -78,5 +70,10 @@
 #define SPEAKER_BCLK _PINNUM(0, 16)
 #define SPEAKER_DATA _PINNUM(0, 20)
 #define SPEAKER_WS_LRCK _PINNUM(0, 22)
+
+// ws2812
+#define WS2812_DATA_1 _PINNUM(1, 7)
+#define WS2812_DATA_2 _PINNUM(1, 12)
+#define WS2812_DATA_3 _PINNUM(0, 28)
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////
