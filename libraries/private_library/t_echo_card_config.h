@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-09-12 14:47:47
+ * @LastEditTime: 2025-09-12 15:46:53
  * @License: GPL 3.0
  */
 #pragma once
@@ -10,35 +10,6 @@
 #define _PINNUM(port, pin) ((port) * 32 + (pin))
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////
-
-// External 1x4p
-#define EXT_1x4P_1_IO_0_25 _PINNUM(0, 25)
-#define EXT_1x4P_1_IO_0_23 _PINNUM(0, 23)
-#define EXT_1x4P_2_IO_1_2 _PINNUM(1, 2)
-#define EXT_1x4P_2_IO_1_4 _PINNUM(1, 4)
-
-// External 1x7p
-#define EXT_1X7P_IO_1_13 _PINNUM(1, 13)
-#define EXT_1X7P_IO_1_15 _PINNUM(1, 15)
-#define EXT_1X7P_IO_0_29 _PINNUM(0, 29)
-#define EXT_1X7P_IO_1_10 _PINNUM(1, 10)
-#define EXT_1X7P_IO_1_11 _PINNUM(1, 11)
-
-// External 2x5p
-#define EXT_2X5P_1_IO_1_13 _PINNUM(1, 13)
-#define EXT_2X5P_1_IO_1_15 _PINNUM(1, 15)
-#define EXT_2X5P_1_IO_1_3 _PINNUM(1, 3)
-#define EXT_2X5P_1_IO_0_16 _PINNUM(0, 16)
-#define EXT_2X5P_1_IO_0_29 _PINNUM(0, 29)
-#define EXT_2X5P_1_IO_1_10 _PINNUM(1, 10)
-#define EXT_2X5P_1_IO_1_11 _PINNUM(1, 11)
-#define EXT_2X5P_2_IO_1_6 _PINNUM(1, 6)
-#define EXT_2X5P_2_IO_0_25 _PINNUM(0, 25)
-#define EXT_2X5P_2_IO_1_2 _PINNUM(1, 2)
-#define EXT_2X5P_2_IO_0_10 _PINNUM(0, 10)
-#define EXT_2X5P_2_IO_0_23 _PINNUM(0, 23)
-#define EXT_2X5P_2_IO_0_9 _PINNUM(0, 9)
-#define EXT_2X5P_2_IO_1_4 _PINNUM(1, 4)
 
 // IIC
 #define IIC_1_SDA _PINNUM(1, 4)
@@ -72,19 +43,6 @@
 #define SCREEN_SRAM_CS -1
 #define SCREEN_MISO -1
 
-// Lora S62F(SX1262)
-#define SX1262_CS _PINNUM(0, 11)
-#define SX1262_RST _PINNUM(0, 7)
-#define SX1262_SCLK _PINNUM(0, 13)
-#define SX1262_MOSI _PINNUM(0, 15)
-#define SX1262_MISO _PINNUM(0, 17)
-#define SX1262_BUSY _PINNUM(0, 14)
-#define SX1262_INT _PINNUM(1, 8)
-#define SX1262_DIO1 _PINNUM(1, 8)
-#define SX1262_DIO2 _PINNUM(0, 5)
-#define SX1262_RF_VC1 _PINNUM(0, 27)
-#define SX1262_RF_VC2 _PINNUM(1, 1)
-
 // BOOT
 #define nRF52840_BOOT _PINNUM(0, 24)
 
@@ -96,16 +54,29 @@
 #define RT9080_EN _PINNUM(0, 30)
 
 // GPS
-#define GPS_WAKE_UP EXT_1X7P_IO_1_13
-#define GPS_1PPS EXT_1X7P_IO_1_15
-#define GPS_UART_TX EXT_1X7P_IO_0_29
-#define GPS_UART_RX EXT_1X7P_IO_1_10
-#define GPS_RT9080_EN EXT_1X7P_IO_1_11
+#define GPS_WAKE_UP _PINNUM(0, 25)
+#define GPS_1PPS _PINNUM(0, 23)
+#define GPS_UART_TX _PINNUM(0, 21)
+#define GPS_UART_RX _PINNUM(0, 19)
 
 // ICM20948
 #define ICM20948_ADDRESS 0x68
 #define ICM20948_SDA IIC_1_SDA
 #define ICM20948_SCL IIC_1_SCL
 #define ICM20948_INT _PINNUM(0, 16)
+
+// buzzer
+#define BUZZER_DATA _PINNUM(1, 6)
+
+// microphone
+#define MICROPHONE_SCLK _PINNUM(1, 3)
+#define MICROPHONE_DATA _PINNUM(1, 5)
+
+// speaker
+#define SPEAKER_EN _PINNUM(1, 11)
+#define SPEAKER_EN_2 _PINNUM(0, 3)
+#define SPEAKER_BCLK _PINNUM(0, 16)
+#define SPEAKER_DATA _PINNUM(0, 20)
+#define SPEAKER_WS_LRCK _PINNUM(0, 22)
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////
