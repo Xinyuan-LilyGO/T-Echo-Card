@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-09-12 16:45:55
+ * @LastEditTime: 2025-09-19 18:05:07
  * @License: GPL 3.0
  */
 #pragma once
@@ -54,8 +54,8 @@
 // GPS
 #define GPS_WAKE_UP _PINNUM(0, 25)
 #define GPS_1PPS _PINNUM(0, 23)
-#define GPS_UART_TX _PINNUM(0, 21)
-#define GPS_UART_RX _PINNUM(0, 19)
+#define GPS_UART_TX _PINNUM(0, 19)
+#define GPS_UART_RX _PINNUM(0, 21)
 
 // buzzer
 #define BUZZER_DATA _PINNUM(1, 6)

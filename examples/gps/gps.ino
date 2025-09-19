@@ -2,7 +2,7 @@
  * @Description: GPS test
  * @Author: LILYGO_L
  * @Date: 2024-10-25 17:57:30
- * @LastEditTime: 2025-09-12 15:13:09
+ * @LastEditTime: 2025-09-19 18:04:57
  * @License: GPL 3.0
  */
 #include "cpp_bus_driver_library.h"
@@ -29,7 +29,7 @@ void setup()
     pinMode(GPS_WAKE_UP, OUTPUT);
     digitalWrite(GPS_WAKE_UP, HIGH);
 
-    Serial2.setPins(GPS_UART_RX, GPS_UART_TX);
+    Serial2.setPins(GPS_UART_TX, GPS_UART_RX);
     Serial2.begin(9600);
 
     pinMode(GPS_1PPS, INPUT);
