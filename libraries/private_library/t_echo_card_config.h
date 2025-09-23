@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-09-19 18:05:07
+ * @LastEditTime: 2025-09-22 14:06:04
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,18 +25,13 @@
 #define ZD25WQ32C_IO2 _PINNUM(1, 9)
 #define ZD25WQ32C_IO3 _PINNUM(0, 26)
 
-// GDEM0122T16
-#define SCREEN_WIDTH 176
-#define SCREEN_HEIGHT 192
-#define SCREEN_BS1 _PINNUM(1, 12)
-#define SCREEN_BUSY _PINNUM(0, 3)
-#define SCREEN_RST _PINNUM(0, 28)
-#define SCREEN_DC _PINNUM(0, 21)
-#define SCREEN_CS _PINNUM(0, 22)
-#define SCREEN_SCLK _PINNUM(0, 19)
-#define SCREEN_MOSI _PINNUM(0, 20)
-#define SCREEN_SRAM_CS -1
-#define SCREEN_MISO -1
+// SSD1315
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define SCREEN_ADDRESS 0x3C
+#define SCREEN_RST -1
+#define SCREEN_SDA IIC_1_SDA
+#define SCREEN_SCL IIC_1_SCL
 
 // BOOT
 #define nRF52840_BOOT _PINNUM(0, 24)
@@ -75,5 +70,9 @@
 #define WS2812_DATA_1 _PINNUM(1, 7)
 #define WS2812_DATA_2 _PINNUM(1, 12)
 #define WS2812_DATA_3 _PINNUM(0, 28)
+
+// QMC5883P
+#define QMC5883P_SDA IIC_1_SDA
+#define QMC5883P_SCL IIC_1_SCL
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-09-02 09:33:15
- * @LastEditTime: 2025-09-12 15:50:24
+ * @LastEditTime: 2025-09-23 10:04:35
  * @License: GPL 3.0
  */
 #include "PDM.h"
@@ -14,21 +14,6 @@
 
 // 用于存储rdm接收流的容器
 std::vector<int16_t> Pdm_Rx_Stream;
-
-// Pdm_Callback中断回调里面不能放printf
-void Pdm_Callback()
-{
-    if (PDM.available() >= MAX_PDM_DATA_TRANSMIT_SIZE)
-    {
-        int16_t pdm_rx_buffer[MAX_PDM_DATA_TRANSMIT_SIZE];
-        int32_t buffer_length = PDM.read(pdm_rx_buffer, MAX_PDM_DATA_TRANSMIT_SIZE * sizeof(int16_t));
-
-        if (Pdm_Rx_Stream.size() < (MAX_PDM_DATA_TRANSMIT_SIZE * MAX_PDM_DATA_TRANSMIT_MULTIPLE))
-        {
-            Pdm_Rx_Stream.insert(Pdm_Rx_Stream.end(), pdm_rx_buffer, pdm_rx_buffer + (buffer_length / sizeof(uint16_t)));
-        }
-    }
-}
 
 void setup()
 {
@@ -50,7 +35,19 @@ void setup()
     digitalWrite(RT9080_EN, HIGH);
 
     PDM.setPins(MICROPHONE_DATA, MICROPHONE_SCLK, -1);
-    PDM.onReceive(Pdm_Callback);
+    // Pdm_Callback中断回调里面不能放printf
+    PDM.onReceive([]()
+                    {
+                        if (PDM.available() >= MAX_PDM_DATA_TRANSMIT_SIZE)
+                        {
+                            int16_t pdm_rx_buffer[MAX_PDM_DATA_TRANSMIT_SIZE];
+                            int32_t buffer_length = PDM.read(pdm_rx_buffer, MAX_PDM_DATA_TRANSMIT_SIZE * sizeof(int16_t));
+
+                            if (Pdm_Rx_Stream.size() < (MAX_PDM_DATA_TRANSMIT_SIZE * MAX_PDM_DATA_TRANSMIT_MULTIPLE))
+                            {
+                                Pdm_Rx_Stream.insert(Pdm_Rx_Stream.end(), pdm_rx_buffer, pdm_rx_buffer + (buffer_length / sizeof(int16_t)));
+                            }
+                        } });
 
     // // optionally set the gain, defaults to 20
     // // PDM.setGain(30);

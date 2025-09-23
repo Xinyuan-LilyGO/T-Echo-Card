@@ -2,7 +2,7 @@
  * @Description: GPS test
  * @Author: LILYGO_L
  * @Date: 2024-10-25 17:57:30
- * @LastEditTime: 2025-09-19 18:04:57
+ * @LastEditTime: 2025-09-23 11:22:22
  * @License: GPL 3.0
  */
 #include "cpp_bus_driver_library.h"
@@ -16,10 +16,10 @@ auto Nrf52840_Gnss = std::make_shared<Cpp_Bus_Driver::Gnss>();
 void setup()
 {
     Serial.begin(115200);
-    while (!Serial)
-    {
-        delay(100); // wait for native usb
-    }
+    // while (!Serial)
+    // {
+    //     delay(100); // wait for native usb
+    // }
     Serial.println("Ciallo");
 
     // 3.3V Power ON
