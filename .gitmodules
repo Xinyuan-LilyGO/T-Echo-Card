@@ -1,6 +1,3 @@
 [submodule "libraries/cpp_bus_driver"]
 	path = libraries/cpp_bus_driver
 	url = https://github.com/Llgok/cpp_bus_driver.git
-[submodule "libraries/Adafruit_NeoPixel"]
-	path = libraries/Adafruit_NeoPixel
-	url = https://github.com/adafruit/Adafruit_NeoPixel.git
