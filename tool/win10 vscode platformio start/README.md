@@ -1,5 +1,5 @@
 
-### Installing t-echo-cardboard type for VSCode PlatformIO on Windows 10
+### Installing t-echo-card board type for VSCode PlatformIO on Windows 10
 
 * * *
 1. Install [Python](https://www.python.org/downloads/).

@@ -16,7 +16,7 @@
 #include <vector>
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202508251207"
+#define SOFTWARE_LASTEDITTIME "202510090919"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
