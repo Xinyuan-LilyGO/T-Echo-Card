@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2025-10-16 14:05:57
+ * @LastEditTime: 2025-10-16 14:56:05
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Echo-Card</h1>
@@ -222,6 +222,8 @@ For pin definitions, please refer to the configuration file:
 <br />
 
 [t_echo_card_config.h](./libraries/private_library/t_echo_card_config.h)
+
+## RelatedTests
 
 ## FAQ
 
