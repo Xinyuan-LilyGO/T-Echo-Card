@@ -1,3 +1,6 @@
+# 1 "C:\\Users\\XK\\AppData\\Local\\Temp\\tmpujv7pf63"
+#include <Arduino.h>
+# 1 "D:/Information/visual_studio_code/gitHub/T-Echo-Card/examples/original_test/original_test.ino"
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -49,7 +52,7 @@ static const uint32_t Local_MAC[2] =
 
 SPIFlash_Device_t ZD25WQ32C =
     {
-        total_size : (1UL << 22), /* 4 MiB */
+        total_size : (1UL << 22),
         start_up_time_us : 12000,
         manufacturer_id : 0xBA,
         memory_type : 0x60,
@@ -68,8 +71,8 @@ SPIFlash_Device_t ZD25WQ32C =
 struct BLE_Uart_Operator
 {
     using state = enum {
-        UNCONNECTED, // not connected
-        CONNECTED,   // connected already
+        UNCONNECTED,
+        CONNECTED,
     };
 
     struct
@@ -104,10 +107,10 @@ struct System_Operator
 struct Button_Triggered_Operator
 {
     using gesture = enum {
-        NOT_ACTIVE,   // not active
-        SINGLE_CLICK, // single click
-        DOUBLE_CLICK, // double click
-        LONG_PRESS,   // long press
+        NOT_ACTIVE,
+        SINGLE_CLICK,
+        DOUBLE_CLICK,
+        LONG_PRESS,
     };
     const uint32_t button_number = nRF52840_BOOT;
 
@@ -141,27 +144,27 @@ size_t Gps_Positioning_Time = 0;
 
 uint32_t Iis_Tx_Buffer[MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
 
-// 已经发送的数据大小
+
 size_t Iis_Send_Data_Size = 0;
 bool Iis_Transmit_Flag = false;
 
 bool Iis_Data_Convert_Wait = false;
 
-// 用于存储rdm接收流的容器
+
 std::vector<int16_t> Pdm_Rx_Stream;
 
 uint8_t Uart_Rx_Buffer[MAX_UART_RX_BUFFER_SIZE] = {0};
 size_t Uart_Rx_Count = 0;
 
-/* UART Serivce: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
- * UART RXD    : 6E400002-B5A3-F393-E0A9-E50E24DCCA9E
- * UART TXD    : 6E400003-B5A3-F393-E0A9-E50E24DCCA9E
- */
 
-// BLE Service
-BLEDfu bledfu;   // OTA DFU service
-BLEDis bledis;   // device information
-BLEUart bleuart; // uart over ble
+
+
+
+
+
+BLEDfu bledfu;
+BLEDis bledis;
+BLEUart bleuart;
 
 BLE_Uart_Operator BLE_Uart_Op;
 System_Operator System_Op;
@@ -169,11 +172,11 @@ Button_Triggered_Operator Button_Triggered_OP;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, SCREEN_RST);
 
-// // SPI
-// SPIClass Custom_SPI(NRF_SPIM3, ZD25WQ32C_MISO, ZD25WQ32C_SCLK, ZD25WQ32C_MOSI);
-// Adafruit_FlashTransport_SPI flashTransport(ZD25WQ32C_CS, Custom_SPI);
 
-// QSPI
+
+
+
+
 Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
                                             ZD25WQ32C_IO0, ZD25WQ32C_IO1,
                                             ZD25WQ32C_IO2, ZD25WQ32C_IO3);
@@ -196,7 +199,21 @@ Adafruit_NeoPixel *Led[] =
         &Led_2,
         &Led_3,
 };
-
+void log_printf(const char *fmt, ...);
+void Buzzer_Trigger(uint32_t delay_ms);
+bool Key_Scanning(void);
+void connect_callback(uint16_t conn_handle);
+void disconnect_callback(uint16_t conn_handle, uint8_t reason);
+void startAdv(void);
+bool BLE_Uart_Initialization(void);
+void Window_Init(System_Window Window);
+void Window_End(System_Window Window);
+void System_Sleep(bool mode);
+void Iis_Data_Convert(const void *input_data, void *out_buffer, size_t input_data_start_index, size_t byte);
+void music_play_welcome();
+void setup();
+void loop();
+#line 200 "D:/Information/visual_studio_code/gitHub/T-Echo-Card/examples/original_test/original_test.ino"
 void log_printf(const char *fmt, ...)
 {
     va_list args;
@@ -238,7 +255,7 @@ bool Key_Scanning(void)
     }
     if (Button_Triggered_OP.timing_flag == true)
     {
-        Button_Triggered_OP.cycletime_2 = millis() + 1000; // timing 1000ms off
+        Button_Triggered_OP.cycletime_2 = millis() + 1000;
         Button_Triggered_OP.timing_flag = false;
     }
     if (Button_Triggered_OP.trigger_flag == true)
@@ -278,7 +295,7 @@ bool Key_Scanning(void)
                 Button_Triggered_OP.trigger_flag = false;
                 Button_Triggered_OP.trigger_start_flag = false;
 
-                if ((Button_Triggered_OP.paragraph_triggered_count == 2)) // single click
+                if ((Button_Triggered_OP.paragraph_triggered_count == 2))
                 {
                     Button_Triggered_OP.current_state = Button_Triggered_OP.gesture::SINGLE_CLICK;
                     log_printf("key triggered: SINGLE_CLICK\n");
@@ -286,7 +303,7 @@ bool Key_Scanning(void)
                     delay(500);
                     return true;
                 }
-                else if ((Button_Triggered_OP.paragraph_triggered_count == 4)) // double click
+                else if ((Button_Triggered_OP.paragraph_triggered_count == 4))
                 {
                     Button_Triggered_OP.current_state = Button_Triggered_OP.gesture::DOUBLE_CLICK;
                     log_printf("key triggered: DOUBLE_CLICK\n");
@@ -296,7 +313,7 @@ bool Key_Scanning(void)
                     delay(500);
                     return true;
                 }
-                else if ((Button_Triggered_OP.paragraph_triggered_count == 1)) // long press
+                else if ((Button_Triggered_OP.paragraph_triggered_count == 1))
                 {
                     Button_Triggered_OP.current_state = Button_Triggered_OP.gesture::LONG_PRESS;
                     log_printf("key triggered: LONG_PRESS\n");
@@ -311,10 +328,10 @@ bool Key_Scanning(void)
     return false;
 }
 
-// callback invoked when central connects
+
 void connect_callback(uint16_t conn_handle)
 {
-    // Get the reference to current connection
+
     BLEConnection *connection = Bluefruit.Connection(conn_handle);
 
     char central_name[32] = {0};
@@ -328,11 +345,11 @@ void connect_callback(uint16_t conn_handle)
     BLE_Uart_Op.connection.state_flag = BLE_Uart_Op.state::CONNECTED;
 }
 
-/**
- * Callback invoked when a connection is dropped
- * @param conn_handle connection where this event happens
- * @param reason is a BLE_HCI_STATUS_CODE which can be found in ble_hci.h
- */
+
+
+
+
+
 void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 {
     (void)conn_handle;
@@ -346,42 +363,26 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 
 void startAdv(void)
 {
-    // Advertising packet
+
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
 
-    // Include bleuart 128-bit uuid
+
     Bluefruit.Advertising.addService(bleuart);
 
-    // Secondary Scan Response packet (optional)
-    // Since there is no room for 'Name' in Advertising packet
-    Bluefruit.ScanResponse.addName();
 
-    /* Start Advertising
-     * - Enable auto advertising if disconnected
-     * - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
-     * - Timeout for fast mode is 30 seconds
-     * - Start(timeout) with timeout = 0 will advertise forever (until connected)
-     *
-     * For recommended advertising interval
-     * https://developer.apple.com/library/content/qa/qa1931/_index.html
-     */
+
+    Bluefruit.ScanResponse.addName();
+# 369 "D:/Information/visual_studio_code/gitHub/T-Echo-Card/examples/original_test/original_test.ino"
     Bluefruit.Advertising.restartOnDisconnect(true);
-    Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
-    Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
-    Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
+    Bluefruit.Advertising.setInterval(32, 244);
+    Bluefruit.Advertising.setFastTimeout(30);
+    Bluefruit.Advertising.start(0);
 }
 
 bool BLE_Uart_Initialization(void)
 {
-    // Setup the BLE LED to be enabled on CONNECT
-    // Note: This is actually the default behavior, but provided
-    // here in case you want to control this LED manually via PIN 19
-    // Bluefruit.autoConnLed(true);
-
-    // Config the peripheral connection with maximum bandwidth
-    // more SRAM required by SoftDevice
-    // Note: All config***() function must be called before begin()
+# 385 "D:/Information/visual_studio_code/gitHub/T-Echo-Card/examples/original_test/original_test.ino"
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 
     if (Bluefruit.begin() == false)
@@ -391,23 +392,23 @@ bool BLE_Uart_Initialization(void)
     }
     Serial.println("BLE initialization successful");
 
-    Bluefruit.setTxPower(8); // Check bluefruit.h for supported values
-    // Bluefruit.setName(getMcuUniqueID()); // useful testing with multiple central connections
+    Bluefruit.setTxPower(8);
+
     Bluefruit.Periph.setConnectCallback(connect_callback);
     Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
-    // To be consistent OTA DFU should be added first if it exists
+
     bledfu.begin();
 
-    // Configure and Start Device Information Service
+
     bledis.setManufacturer("LILYGO Industries");
     bledis.setModel("T-Impulse-Plus");
     bledis.begin();
 
-    // Configure and Start BLE Uart Service
+
     bleuart.begin();
 
-    // Set up and start advertising
+
     startAdv();
 
     Serial.println("Please use the BLE debugging tool to connect to the development board.");
@@ -424,11 +425,11 @@ void Window_Init(System_Window Window)
         System_Op.sleep_count = 0;
         break;
     case System_Window::FLASH_TEST:
-        // Custom_SPI.setClockDivider(SPI_CLOCK_DIV2); // dual frequency 32MHz
+
 
         flash.begin();
         flashTransport.setClockSpeed(32000000UL, 0);
-        flashTransport.runCommand(0xAB); // Exit deep sleep mode
+        flashTransport.runCommand(0xAB);
 
         if (flash.begin(&ZD25WQ32C) == false)
         {
@@ -444,17 +445,17 @@ void Window_Init(System_Window Window)
         break;
 
     case System_Window::BATTERY_TEST:
-        // Measure battery
+
         pinMode(BATTERY_ADC_DATA, INPUT);
         pinMode(BATTERY_MEASUREMENT_CONTROL, OUTPUT);
-        digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH); // Turn on battery voltage measurement
+        digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH);
 
         Battery_Control_Switch = true;
 
-        // Set the analog reference to 3.0V (default = 3.6V)
+
         analogReference(AR_INTERNAL_3_0);
-        // Set the resolution to 12-bit (0..4095)
-        analogReadResolution(12); // Can be 8, 10, 12 or 14
+
+        analogReadResolution(12);
 
         break;
 
@@ -470,7 +471,7 @@ void Window_Init(System_Window Window)
             log_printf("qmc5883p init success\n");
             System_Op.init_flag.imu = true;
 
-            // Set to normal mode
+
             qmc.setMode(QMC5883P_MODE_NORMAL);
 
             qmc5883p_mode_t currentMode = qmc.getMode();
@@ -494,7 +495,7 @@ void Window_Init(System_Window Window)
                 break;
             }
 
-            // Set ODR (Output Data Rate) to 50Hz
+
             qmc.setODR(QMC5883P_ODR_50HZ);
             qmc5883p_odr_t currentODR = qmc.getODR();
             log_printf("ODR (Output Data Rate): ");
@@ -517,7 +518,7 @@ void Window_Init(System_Window Window)
                 break;
             }
 
-            // Set OSR (Over Sample Ratio) to 4
+
             qmc.setOSR(QMC5883P_OSR_4);
             qmc5883p_osr_t currentOSR = qmc.getOSR();
             log_printf("OSR (Over Sample Ratio): ");
@@ -540,7 +541,7 @@ void Window_Init(System_Window Window)
                 break;
             }
 
-            // Set DSR (Downsample Ratio) to 2
+
             qmc.setDSR(QMC5883P_DSR_2);
             qmc5883p_dsr_t currentDSR = qmc.getDSR();
             log_printf("DSR (Downsample Ratio): ");
@@ -563,7 +564,7 @@ void Window_Init(System_Window Window)
                 break;
             }
 
-            // Set Range to 8G
+
             qmc.setRange(QMC5883P_RANGE_8G);
             qmc5883p_range_t currentRange = qmc.getRange();
             log_printf("Range: ");
@@ -586,7 +587,7 @@ void Window_Init(System_Window Window)
                 break;
             }
 
-            // Set SetReset mode to On
+
             qmc.setSetResetMode(QMC5883P_SETRESET_ON);
             qmc5883p_setreset_t currentSetReset = qmc.getSetResetMode();
             log_printf("Set/Reset Mode: ");
@@ -613,7 +614,7 @@ void Window_Init(System_Window Window)
         Serial2.setPins(GPS_UART_TX, GPS_UART_RX);
         Serial2.begin(9600);
 
-        digitalWrite(GPS_WAKE_UP, HIGH); // gps打开
+        digitalWrite(GPS_WAKE_UP, HIGH);
         digitalWrite(GPS_RF_EN, HIGH);
 
         Gps_Positioning_Flag = false;
@@ -624,7 +625,7 @@ void Window_Init(System_Window Window)
     case System_Window::MICROPHONE_TEST:
         Pdm_Rx_Stream.clear();
         PDM.setPins(MICROPHONE_DATA, MICROPHONE_SCLK, -1);
-        // Pdm_Callback中断回调里面不能放printf
+
         PDM.onReceive([]()
                       {
                         if (PDM.available() >= MAX_PDM_DATA_TRANSMIT_SIZE)
@@ -638,12 +639,12 @@ void Window_Init(System_Window Window)
                             }
                         } });
 
-        // // optionally set the gain, defaults to 20
-        // // PDM.setGain(30);
 
-        // initialize PDM with:
-        // - one channel (mono mode)
-        // - a 16 kHz sample rate
+
+
+
+
+
         if (PDM.begin(2, 16000) == false)
         {
             printf("failed to start pdm\n");
@@ -664,7 +665,7 @@ void Window_End(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::FLASH_TEST:
-        flashTransport.runCommand(0xB9); // Flash Deep Sleep
+        flashTransport.runCommand(0xB9);
         flash.end();
         pinMode(ZD25WQ32C_SCLK, INPUT);
         pinMode(ZD25WQ32C_CS, INPUT);
@@ -675,7 +676,7 @@ void Window_End(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::BATTERY_TEST:
-        digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW); // Turn off battery voltage measurement
+        digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW);
         CycleTime = 0;
         break;
     case System_Window::IMU_TEST:
@@ -685,7 +686,7 @@ void Window_End(System_Window Window)
         break;
     case System_Window::GPS_TEST:
         Serial2.end();
-        digitalWrite(GPS_WAKE_UP, LOW); // gps关闭
+        digitalWrite(GPS_WAKE_UP, LOW);
         digitalWrite(GPS_RF_EN, LOW);
         CycleTime = 0;
         break;
@@ -733,12 +734,12 @@ void System_Sleep(bool mode)
         digitalWrite(RT9080_EN, LOW);
         pinMode(RT9080_EN, INPUT_PULLDOWN);
 
-        // 停止广播
+
         Bluefruit.Advertising.stop();
     }
     else
     {
-        // 3.3V Power ON
+
         pinMode(RT9080_EN, OUTPUT);
         digitalWrite(RT9080_EN, HIGH);
         delay(100);
@@ -758,13 +759,13 @@ void System_Sleep(bool mode)
 
         Serial.begin(115200);
 
-        Bluefruit.Advertising.start(0); // 0 = Don't stop advertising after n seconds
+        Bluefruit.Advertising.start(0);
 
         pinMode(BUZZER_DATA, OUTPUT);
         digitalWrite(BUZZER_DATA, LOW);
 
         pinMode(GPS_WAKE_UP, OUTPUT);
-        digitalWrite(GPS_WAKE_UP, HIGH); // gps开启
+        digitalWrite(GPS_WAKE_UP, HIGH);
         pinMode(GPS_RF_EN, OUTPUT);
         digitalWrite(GPS_RF_EN, HIGH);
 
@@ -793,7 +794,7 @@ void Iis_Data_Convert(const void *input_data, void *out_buffer, size_t input_dat
 
 void music_play_welcome()
 {
-    // 播放音乐测试
+
     printf("music play start\n");
 
     Iis_Send_Data_Size = 0;
@@ -829,8 +830,8 @@ void music_play_welcome()
                 {
                     size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), sizeof(c2_b16_s44100_2) - Iis_Send_Data_Size);
 
-                    // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
-                    // printf("iis send data length: %d\n", buffer_length);
+
+
 
                     if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
                     {
@@ -860,7 +861,7 @@ void setup()
 {
     Serial.begin(115200);
 
-    // 3.3V Power ON
+
     pinMode(RT9080_EN, OUTPUT);
     digitalWrite(RT9080_EN, HIGH);
     delay(100);
@@ -905,7 +906,7 @@ void setup()
 
     Wire.setPins(SCREEN_SDA, SCREEN_SCL);
     Wire.begin();
-    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+
     if (display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS) == false)
     {
         log_printf("ssd1306 init fail\n");
@@ -932,7 +933,7 @@ void setup()
     uint8_t serial_init_count = 0;
     while (!Serial)
     {
-        delay(100); // wait for native usb
+        delay(100);
         serial_init_count++;
         if (serial_init_count > 30)
         {
@@ -946,7 +947,7 @@ void setup()
     pinMode(nRF52840_BOOT, INPUT_PULLUP);
 
     pinMode(GPS_WAKE_UP, OUTPUT);
-    digitalWrite(GPS_WAKE_UP, HIGH); // gps开启
+    digitalWrite(GPS_WAKE_UP, HIGH);
     pinMode(GPS_RF_EN, OUTPUT);
     digitalWrite(GPS_RF_EN, HIGH);
 
@@ -966,7 +967,7 @@ void setup()
 
     flash.begin();
     flashTransport.setClockSpeed(32000000UL, 0);
-    flashTransport.runCommand(0xAB); // Exit deep sleep mode
+    flashTransport.runCommand(0xAB);
     if (flash.begin(&ZD25WQ32C) == false)
     {
         log_printf("flash init fail\n");
@@ -977,7 +978,7 @@ void setup()
         log_printf("flash init successful\n");
         System_Op.init_flag.flash = true;
     }
-    flashTransport.runCommand(0xB9); // Flash Deep Sleep
+    flashTransport.runCommand(0xB9);
     flash.end();
     pinMode(ZD25WQ32C_SCLK, INPUT);
     pinMode(ZD25WQ32C_CS, INPUT);
@@ -997,7 +998,7 @@ void setup()
         log_printf("qmc5883p init success\n");
         System_Op.init_flag.imu = true;
 
-        // Set to normal mode
+
         qmc.setMode(QMC5883P_MODE_NORMAL);
 
         qmc5883p_mode_t currentMode = qmc.getMode();
@@ -1021,7 +1022,7 @@ void setup()
             break;
         }
 
-        // Set ODR (Output Data Rate) to 50Hz
+
         qmc.setODR(QMC5883P_ODR_50HZ);
         qmc5883p_odr_t currentODR = qmc.getODR();
         log_printf("ODR (Output Data Rate): ");
@@ -1044,7 +1045,7 @@ void setup()
             break;
         }
 
-        // Set OSR (Over Sample Ratio) to 4
+
         qmc.setOSR(QMC5883P_OSR_4);
         qmc5883p_osr_t currentOSR = qmc.getOSR();
         log_printf("OSR (Over Sample Ratio): ");
@@ -1067,7 +1068,7 @@ void setup()
             break;
         }
 
-        // Set DSR (Downsample Ratio) to 2
+
         qmc.setDSR(QMC5883P_DSR_2);
         qmc5883p_dsr_t currentDSR = qmc.getDSR();
         log_printf("DSR (Downsample Ratio): ");
@@ -1090,7 +1091,7 @@ void setup()
             break;
         }
 
-        // Set Range to 8G
+
         qmc.setRange(QMC5883P_RANGE_8G);
         qmc5883p_range_t currentRange = qmc.getRange();
         log_printf("Range: ");
@@ -1113,7 +1114,7 @@ void setup()
             break;
         }
 
-        // Set SetReset mode to On
+
         qmc.setSetResetMode(QMC5883P_SETRESET_ON);
         qmc5883p_setreset_t currentSetReset = qmc.getSetResetMode();
         log_printf("Set/Reset Mode: ");
@@ -1159,21 +1160,21 @@ void setup()
 
 void loop()
 {
-    static uint16_t hue = 0; // HSV色调值（0-65535）
+    static uint16_t hue = 0;
 
     for (uint8_t i = 0; i < sizeof(Led) / sizeof(*Led); i++)
     {
-        // 使用HSV颜色模式，亮度固定为50（val=50）
+
         uint32_t color = Led[i]->ColorHSV(hue, 255, 50);
         Led[i]->setPixelColor(0, color);
         Led[i]->show();
     }
 
-    // 每次增加色调值，实现颜色渐变
-    hue += 256; // 调整这个值可以控制颜色变化速度
+
+    hue += 256;
     if (hue >= 65535)
     {
-        hue = 0; // 循环色调值
+        hue = 0;
     }
 
     if (digitalRead(KEY_1) == LOW)
@@ -1181,7 +1182,7 @@ void loop()
         if (Iis_Transmit_Flag == false)
         {
             delay(300);
-            // 播放音乐测试
+
             printf("music play start\n");
 
             Iis_Send_Data_Size = 0;
@@ -1205,17 +1206,17 @@ void loop()
             System_Op.sleep_count = 0;
             break;
         case System_Window::BATTERY_TEST:
-            // delay(300);
+
 
             Battery_Control_Switch = !Battery_Control_Switch;
             if (Battery_Control_Switch == true)
             {
-                digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH); // Enable battery voltage measurement
+                digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH);
                 log_printf("turn on battery voltage measurement\n");
             }
             else
             {
-                digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW); // Turn off battery voltage measurement
+                digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW);
                 log_printf("turn off battery voltage measurement\n");
             }
             break;
@@ -1241,8 +1242,8 @@ void loop()
             {
                 size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), sizeof(c2_b16_s44100_3) - Iis_Send_Data_Size);
 
-                // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
-                // printf("iis send data length: %d\n", buffer_length);
+
+
 
                 if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
                 {
@@ -1288,11 +1289,11 @@ void loop()
             {
                 display.clearDisplay();
                 display.setCursor(0, 10);
-                // display.printf("deep sleep");
+
                 display.printf("power off");
                 display.display();
 
-                // log_printf("deep sleep\n");
+
                 log_printf("power off\n");
 
                 delay(1000);
@@ -1358,10 +1359,10 @@ void loop()
 
                 System_Sleep(true);
 
-                while (1) // 开始睡眠
+                while (1)
                 {
                     waitForEvent();
-                    // systemOff(KEY_1, LOW);
+
                     delay(1000);
 
                     if (digitalRead(KEY_1) == LOW)
@@ -1468,24 +1469,24 @@ void loop()
                     display.setCursor(0, 0);
                     display.printf("Imu Y");
                     display.setCursor(0, 10);
-                    // display.printf("gx:%.01f", gx);
-                    // display.setCursor(0, 20);
-                    // display.printf("gy:%.01f", gy);
-                    // display.setCursor(0, 30);
-                    // display.printf("gz:%.01f", gz);
 
-                    // 计算水平分量的平方和（B_horizontal_squared）
+
+
+
+
+
+
                     float B_horizontal_sq = (gx * gx) + (gy * gy);
 
-                    // 计算磁倾角（I，单位：弧度）
-                    // 使用 atan2() 函数可以更准确地处理所有象限
+
+
                     float I_rad = atan2(gz, sqrt(B_horizontal_sq));
 
-                    // 将弧度转换为角度
-                    // 弧度转角度公式： 角度 = 弧度 * (180.0 / PI)
+
+
                     float dip_angle = I_rad * (180.0 / PI);
 
-                    // 磁倾角
+
                     display.setCursor(0, 10);
                     display.printf("angle:%.1f deg", dip_angle);
 
@@ -1536,17 +1537,17 @@ void loop()
                 Gps_Positioning_Time++;
             }
 
-            // 检查Serial2是否有可用数据
+
             if (Uart_Rx_Count >= MAX_UART_RX_BUFFER_SIZE)
             {
                 Uart_Rx_Buffer[Uart_Rx_Count] = '\0';
 
-                // 打印RMC的相关信息
+
                 log_printf("---begin---\n%s \n---end---\n", Uart_Rx_Buffer);
 
                 log_printf("---RMC---\n");
 
-                // 创建Rmc对象用于存储解析结果
+
                 Cpp_Bus_Driver::Gnss::Rmc rmc;
 
                 display.clearDisplay();
@@ -1563,7 +1564,7 @@ void loop()
                     log_printf("Gps Y:%d s\n", Gps_Positioning_Time);
                 }
 
-                // 调用parse_rmc_info进行解码
+
                 if (Nrf52840_Gnss->parse_rmc_info(Uart_Rx_Buffer, Uart_Rx_Count, rmc) == true)
                 {
                     log_printf("location status: %s\n", (rmc.location_status).c_str());
@@ -1652,9 +1653,9 @@ void loop()
                 display.display();
 
                 log_printf("Pdm_Rx_Stream size: %d\n", Pdm_Rx_Stream.size());
-                // 输出左声道数据
+
                 log_printf("left: %d\n", Pdm_Rx_Stream[0]);
-                // 输出右声道数据
+
                 log_printf("right: %d\n", Pdm_Rx_Stream[1]);
 
                 Pdm_Rx_Stream.erase(Pdm_Rx_Stream.begin(), Pdm_Rx_Stream.begin() + MAX_PDM_DATA_TRANSMIT_SIZE);
