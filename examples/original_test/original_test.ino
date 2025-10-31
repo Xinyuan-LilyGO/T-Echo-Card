@@ -1456,16 +1456,31 @@ void loop()
                     display.setCursor(0, 0);
                     display.printf("Imu Y");
                     display.setCursor(0, 10);
-                    display.printf("gx:%.01f", gx);
-                    display.setCursor(0, 20);
-                    display.printf("gy:%.01f", gy);
-                    display.setCursor(0, 30);
-                    display.printf("gz:%.01f", gz);
+                    // display.printf("gx:%.01f", gx);
+                    // display.setCursor(0, 20);
+                    // display.printf("gy:%.01f", gy);
+                    // display.setCursor(0, 30);
+                    // display.printf("gz:%.01f", gz);
+
+                    // 计算水平分量的平方和（B_horizontal_squared）
+                    float B_horizontal_sq = (gx * gx) + (gy * gy);
+
+                    // 计算磁倾角（I，单位：弧度）
+                    // 使用 atan2() 函数可以更准确地处理所有象限
+                    float I_rad = atan2(gz, sqrt(B_horizontal_sq));
+
+                    // 将弧度转换为角度
+                    // 弧度转角度公式： 角度 = 弧度 * (180.0 / PI)
+                    float dip_angle = I_rad * (180.0 / PI);
+
+                    // 磁倾角
+                    display.setCursor(0, 10);
+                    display.printf("angle:%.1f deg", dip_angle);
 
                     display.display();
 
                     log_printf("imu init successful\n");
-                    log_printf("gx = %.6f  |  gy = %.6f  |  gz = %.6f\n", gx, gy, gz);
+                    log_printf("gx = %.6f  |  gy = %.6f  |  gz = %.6f | dip angle:%.1f deg\n", gx, gy, gz, dip_angle);
                 }
                 else
                 {

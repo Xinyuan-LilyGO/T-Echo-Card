@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-09-22 14:06:04
+ * @LastEditTime: 2025-10-31 11:02:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -47,6 +47,7 @@
 #define RT9080_EN _PINNUM(0, 30)
 
 // GPS
+#define GPS_EN _PINNUM(1, 15)
 #define GPS_WAKE_UP _PINNUM(0, 25)
 #define GPS_1PPS _PINNUM(0, 23)
 #define GPS_UART_TX _PINNUM(0, 19)
