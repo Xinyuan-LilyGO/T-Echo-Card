@@ -1343,7 +1343,7 @@ void loop()
             log_printf("system time: %02d:%02d:%02d\n", hours, minutes, seconds);
 
             log_printf(("[T-Echo-Card_" + (String)BOARD_VERSION "][" + (String)SOFTWARE_NAME +
-                        "]_firmware_" + (String)SOFTWARE_LASTEDITTIME)
+                        "]_firmware_" + (String)SOFTWARE_LASTEDITTIME + "\n")
                            .c_str());
 
             display.display();
