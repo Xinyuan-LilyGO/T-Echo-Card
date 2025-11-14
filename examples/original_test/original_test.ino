@@ -16,7 +16,7 @@
 #include <vector>
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202511131342"
+#define SOFTWARE_LASTEDITTIME "202511141340"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -1544,7 +1544,7 @@ void loop()
             // 检查Serial2是否有可用数据
             if (Uart_Rx_Count >= MAX_UART_RX_BUFFER_SIZE)
             {
-                Uart_Rx_Buffer[Uart_Rx_Count] = '\0';
+                Uart_Rx_Buffer[MAX_UART_RX_BUFFER_SIZE - 1] = '\0';
 
                 // 打印RMC的相关信息
                 log_printf("---begin---\n%s \n---end---\n", Uart_Rx_Buffer);
