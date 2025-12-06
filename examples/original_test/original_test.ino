@@ -8,15 +8,15 @@
 #include "Adafruit_SPIFlash.h"
 #include "cpp_bus_driver_library.h"
 #include "wiring.h"
-#include "Adafruit_QMC5883P.h"
 #include "Adafruit_NeoPixel.h"
 #include "c2_b16_s44100_2.h"
 #include "c2_b16_s44100_3.h"
 #include "PDM.h"
 #include <vector>
+#include "ICM20948_WE.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202511141340"
+#define SOFTWARE_LASTEDITTIME "202512061012"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -180,7 +180,7 @@ Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
 
 Adafruit_SPIFlash flash(&flashTransport);
 
-Adafruit_QMC5883P qmc;
+ICM20948_WE myIMU = ICM20948_WE(&Wire, ICM20948_ADDRESS);
 
 auto Nrf52840_Gnss = std::make_unique<Cpp_Bus_Driver::Gnss>();
 
@@ -459,151 +459,103 @@ void Window_Init(System_Window Window)
         break;
 
     case System_Window::IMU_TEST:
-        Wire.setPins(QMC5883P_SDA, QMC5883P_SCL);
-        if (qmc.begin() == false)
+        Wire.setPins(ICM20948_SDA, ICM20948_SCL);
+
+        if (myIMU.init() == false)
         {
-            log_printf("qmc5883p init fail\n");
+            log_printf("ICM20948 AG init fail\n");
             System_Op.init_flag.imu = false;
         }
         else
         {
-            log_printf("qmc5883p init success\n");
-            System_Op.init_flag.imu = true;
-
-            // Set to normal mode
-            qmc.setMode(QMC5883P_MODE_NORMAL);
-
-            qmc5883p_mode_t currentMode = qmc.getMode();
-            log_printf("Mode: ");
-            switch (currentMode)
+            myIMU.sleep(false);
+            if (myIMU.initMagnetometer() == false)
             {
-            case QMC5883P_MODE_SUSPEND:
-                log_printf("Suspend\n");
-                break;
-            case QMC5883P_MODE_NORMAL:
-                log_printf("Normal\n");
-                break;
-            case QMC5883P_MODE_SINGLE:
-                log_printf("Single\n");
-                break;
-            case QMC5883P_MODE_CONTINUOUS:
-                log_printf("Continuous\n");
-                break;
-            default:
-                log_printf("Unknown\n");
-                break;
+                log_printf("ICM20948 M init fail\n");
+                System_Op.init_flag.imu = false;
             }
-
-            // Set ODR (Output Data Rate) to 50Hz
-            qmc.setODR(QMC5883P_ODR_50HZ);
-            qmc5883p_odr_t currentODR = qmc.getODR();
-            log_printf("ODR (Output Data Rate): ");
-            switch (currentODR)
+            else
             {
-            case QMC5883P_ODR_10HZ:
-                log_printf("10Hz\n");
-                break;
-            case QMC5883P_ODR_50HZ:
-                log_printf("50Hz\n");
-                break;
-            case QMC5883P_ODR_100HZ:
-                log_printf("100Hz\n");
-                break;
-            case QMC5883P_ODR_200HZ:
-                log_printf("200Hz\n");
-                break;
-            default:
-                log_printf("Unknown\n");
-                break;
-            }
+                log_printf("ICM20948 init successful\n");
+                System_Op.init_flag.imu = true;
 
-            // Set OSR (Over Sample Ratio) to 4
-            qmc.setOSR(QMC5883P_OSR_4);
-            qmc5883p_osr_t currentOSR = qmc.getOSR();
-            log_printf("OSR (Over Sample Ratio): ");
-            switch (currentOSR)
-            {
-            case QMC5883P_OSR_8:
-                log_printf("8\n");
-                break;
-            case QMC5883P_OSR_4:
-                log_printf("4\n");
-                break;
-            case QMC5883P_OSR_2:
-                log_printf("2\n");
-                break;
-            case QMC5883P_OSR_1:
-                log_printf("1\n");
-                break;
-            default:
-                log_printf("Unknown\n");
-                break;
-            }
+                /*  This is a method to calibrate. You have to determine the minimum and maximum
+                 *  raw acceleration values of the axes determined in the range +/- 2 g.
+                 *  You call the function as follows: setAccOffsets(xMin,xMax,yMin,yMax,zMin,zMax);
+                 *  The parameters are floats.
+                 *  The calibration changes the slope / ratio of raw acceleration vs g. The zero point
+                 *  is set as (min + max)/2.
+                 */
+                // myIMU.setAccOffsets(-16330.0, 16450.0, -16600.0, 16180.0, -16520.0, 16690.0);
 
-            // Set DSR (Downsample Ratio) to 2
-            qmc.setDSR(QMC5883P_DSR_2);
-            qmc5883p_dsr_t currentDSR = qmc.getDSR();
-            log_printf("DSR (Downsample Ratio): ");
-            switch (currentDSR)
-            {
-            case QMC5883P_DSR_1:
-                log_printf("1\n");
-                break;
-            case QMC5883P_DSR_2:
-                log_printf("2\n");
-                break;
-            case QMC5883P_DSR_4:
-                log_printf("4\n");
-                break;
-            case QMC5883P_DSR_8:
-                log_printf("8\n");
-                break;
-            default:
-                log_printf("Unknown");
-                break;
-            }
+                /* The starting point, if you position the ICM20948 flat, is not necessarily 0g/0g/1g for x/y/z.
+                 * The autoOffset function measures offset. It assumes your ICM20948 is positioned flat with its
+                 * x,y-plane. The more you deviate from this, the less accurate will be your results.
+                 * It overwrites the zero points of setAccOffsets, but keeps the correction of the slope.
+                 * The function also measures the offset of the gyroscope data. The gyroscope offset does not
+                 * depend on the positioning.
+                 * This function needs to be called after setAccsOffsets but before other settings since it will
+                 * overwrite settings!
+                 * You can query the offsets with the functions:
+                 * xyzFloat getAccOffsets() and xyzFloat getGyrOffsets()
+                 * You can apply the offsets using:
+                 * setAccOffsets(xyzFloat yourOffsets) and setGyrOffsets(xyzFloat yourOffsets)
+                 */
+                log_printf("position your icm20948 flat and don't move it - calibrating...\n");
+                delay(1000);
+                myIMU.autoOffsets();
+                log_printf("done!\n");
 
-            // Set Range to 8G
-            qmc.setRange(QMC5883P_RANGE_8G);
-            qmc5883p_range_t currentRange = qmc.getRange();
-            log_printf("Range: ");
-            switch (currentRange)
-            {
-            case QMC5883P_RANGE_30G:
-                log_printf("±30G\n");
-                break;
-            case QMC5883P_RANGE_12G:
-                log_printf("±12G\n");
-                break;
-            case QMC5883P_RANGE_8G:
-                log_printf("±8G\n");
-                break;
-            case QMC5883P_RANGE_2G:
-                log_printf("±2G\n");
-                break;
-            default:
-                log_printf("Unknown\n");
-                break;
-            }
+                /* enables or disables the acceleration sensor, default: enabled */
+                // myIMU.enableAcc(true);
 
-            // Set SetReset mode to On
-            qmc.setSetResetMode(QMC5883P_SETRESET_ON);
-            qmc5883p_setreset_t currentSetReset = qmc.getSetResetMode();
-            log_printf("Set/Reset Mode: ");
-            switch (currentSetReset)
-            {
-            case QMC5883P_SETRESET_ON:
-                log_printf("Set and Reset On\n");
-                break;
-            case QMC5883P_SETRESET_SETONLY:
-                log_printf("Set Only On\n");
-                break;
-            case QMC5883P_SETRESET_OFF:
-                log_printf("Set and Reset Off\n");
-                break;
-            default:
-                log_printf("Unknown\n");
-                break;
+                /*  ICM20948_ACC_RANGE_2G      2 g   (default)
+                 *  ICM20948_ACC_RANGE_4G      4 g
+                 *  ICM20948_ACC_RANGE_8G      8 g
+                 *  ICM20948_ACC_RANGE_16G    16 g
+                 */
+                myIMU.setAccRange(ICM20948_ACC_RANGE_2G);
+
+                /*  Choose a level for the Digital Low Pass Filter or switch it off.
+                 *  ICM20948_DLPF_0, ICM20948_DLPF_2, ...... ICM20948_DLPF_7, ICM20948_DLPF_OFF
+                 *
+                 *  IMPORTANT: This needs to be ICM20948_DLPF_7 if DLPF is used in cycle mode!
+                 *
+                 *  DLPF       3dB Bandwidth [Hz]      Output Rate [Hz]
+                 *    0              246.0               1125/(1+ASRD)
+                 *    1              246.0               1125/(1+ASRD)
+                 *    2              111.4               1125/(1+ASRD)
+                 *    3               50.4               1125/(1+ASRD)
+                 *    4               23.9               1125/(1+ASRD)
+                 *    5               11.5               1125/(1+ASRD)
+                 *    6                5.7               1125/(1+ASRD)
+                 *    7              473.0               1125/(1+ASRD)
+                 *    OFF           1209.0               4500
+                 *
+                 *    ASRD = Accelerometer Sample Rate Divider (0...4095)
+                 *    You achieve lowest noise using level 6
+                 */
+                myIMU.setAccDLPF(ICM20948_DLPF_6);
+
+                /*  Acceleration sample rate divider divides the output rate of the accelerometer.
+                 *  Sample rate = Basic sample rate / (1 + divider)
+                 *  It can only be applied if the corresponding DLPF is not off!
+                 *  Divider is a number 0...4095 (different range compared to gyroscope)
+                 *  If sample rates are set for the accelerometer and the gyroscope, the gyroscope
+                 *  sample rate has priority.
+                 */
+                // myIMU.setAccSampleRateDivider(10);
+
+                /* You can set the following modes for the magnetometer:
+                 * AK09916_PWR_DOWN          Power down to save energy
+                 * AK09916_TRIGGER_MODE      Measurements on request, a measurement is triggered by
+                 *                           calling setMagOpMode(AK09916_TRIGGER_MODE)
+                 * AK09916_CONT_MODE_10HZ    Continuous measurements, 10 Hz rate
+                 * AK09916_CONT_MODE_20HZ    Continuous measurements, 20 Hz rate
+                 * AK09916_CONT_MODE_50HZ    Continuous measurements, 50 Hz rate
+                 * AK09916_CONT_MODE_100HZ   Continuous measurements, 100 Hz rate (default)
+                 */
+                myIMU.setMagOpMode(AK09916_CONT_MODE_20HZ);
             }
         }
 
@@ -679,8 +631,9 @@ void Window_End(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::IMU_TEST:
-        pinMode(QMC5883P_SDA, INPUT);
-        pinMode(QMC5883P_SCL, INPUT);
+        myIMU.sleep(true);
+        pinMode(ICM20948_SDA, INPUT);
+        pinMode(ICM20948_SCL, INPUT);
         CycleTime = 0;
         break;
     case System_Window::GPS_TEST:
@@ -986,156 +939,107 @@ void setup()
     pinMode(ZD25WQ32C_IO2, INPUT);
     pinMode(ZD25WQ32C_IO3, INPUT);
 
-    Wire.setPins(QMC5883P_SDA, QMC5883P_SCL);
-    if (qmc.begin() == false)
+    Wire.setPins(ICM20948_SDA, ICM20948_SCL);
+    if (myIMU.init() == false)
     {
-        log_printf("qmc5883p init fail\n");
+        log_printf("ICM20948 AG init fail\n");
         System_Op.init_flag.imu = false;
     }
     else
     {
-        log_printf("qmc5883p init success\n");
-        System_Op.init_flag.imu = true;
-
-        // Set to normal mode
-        qmc.setMode(QMC5883P_MODE_NORMAL);
-
-        qmc5883p_mode_t currentMode = qmc.getMode();
-        log_printf("Mode: ");
-        switch (currentMode)
+        myIMU.sleep(false);
+        if (myIMU.initMagnetometer() == false)
         {
-        case QMC5883P_MODE_SUSPEND:
-            log_printf("Suspend\n");
-            break;
-        case QMC5883P_MODE_NORMAL:
-            log_printf("Normal\n");
-            break;
-        case QMC5883P_MODE_SINGLE:
-            log_printf("Single\n");
-            break;
-        case QMC5883P_MODE_CONTINUOUS:
-            log_printf("Continuous\n");
-            break;
-        default:
-            log_printf("Unknown\n");
-            break;
+            log_printf("ICM20948 M init fail\n");
+            System_Op.init_flag.imu = false;
         }
-
-        // Set ODR (Output Data Rate) to 50Hz
-        qmc.setODR(QMC5883P_ODR_50HZ);
-        qmc5883p_odr_t currentODR = qmc.getODR();
-        log_printf("ODR (Output Data Rate): ");
-        switch (currentODR)
+        else
         {
-        case QMC5883P_ODR_10HZ:
-            log_printf("10Hz\n");
-            break;
-        case QMC5883P_ODR_50HZ:
-            log_printf("50Hz\n");
-            break;
-        case QMC5883P_ODR_100HZ:
-            log_printf("100Hz\n");
-            break;
-        case QMC5883P_ODR_200HZ:
-            log_printf("200Hz\n");
-            break;
-        default:
-            log_printf("Unknown\n");
-            break;
-        }
+            log_printf("ICM20948 init successful\n");
+            System_Op.init_flag.imu = true;
 
-        // Set OSR (Over Sample Ratio) to 4
-        qmc.setOSR(QMC5883P_OSR_4);
-        qmc5883p_osr_t currentOSR = qmc.getOSR();
-        log_printf("OSR (Over Sample Ratio): ");
-        switch (currentOSR)
-        {
-        case QMC5883P_OSR_8:
-            log_printf("8\n");
-            break;
-        case QMC5883P_OSR_4:
-            log_printf("4\n");
-            break;
-        case QMC5883P_OSR_2:
-            log_printf("2\n");
-            break;
-        case QMC5883P_OSR_1:
-            log_printf("1\n");
-            break;
-        default:
-            log_printf("Unknown\n");
-            break;
-        }
+            /*  This is a method to calibrate. You have to determine the minimum and maximum
+             *  raw acceleration values of the axes determined in the range +/- 2 g.
+             *  You call the function as follows: setAccOffsets(xMin,xMax,yMin,yMax,zMin,zMax);
+             *  The parameters are floats.
+             *  The calibration changes the slope / ratio of raw acceleration vs g. The zero point
+             *  is set as (min + max)/2.
+             */
+            // myIMU.setAccOffsets(-16330.0, 16450.0, -16600.0, 16180.0, -16520.0, 16690.0);
 
-        // Set DSR (Downsample Ratio) to 2
-        qmc.setDSR(QMC5883P_DSR_2);
-        qmc5883p_dsr_t currentDSR = qmc.getDSR();
-        log_printf("DSR (Downsample Ratio): ");
-        switch (currentDSR)
-        {
-        case QMC5883P_DSR_1:
-            log_printf("1\n");
-            break;
-        case QMC5883P_DSR_2:
-            log_printf("2\n");
-            break;
-        case QMC5883P_DSR_4:
-            log_printf("4\n");
-            break;
-        case QMC5883P_DSR_8:
-            log_printf("8\n");
-            break;
-        default:
-            log_printf("Unknown");
-            break;
-        }
+            /* The starting point, if you position the ICM20948 flat, is not necessarily 0g/0g/1g for x/y/z.
+             * The autoOffset function measures offset. It assumes your ICM20948 is positioned flat with its
+             * x,y-plane. The more you deviate from this, the less accurate will be your results.
+             * It overwrites the zero points of setAccOffsets, but keeps the correction of the slope.
+             * The function also measures the offset of the gyroscope data. The gyroscope offset does not
+             * depend on the positioning.
+             * This function needs to be called after setAccsOffsets but before other settings since it will
+             * overwrite settings!
+             * You can query the offsets with the functions:
+             * xyzFloat getAccOffsets() and xyzFloat getGyrOffsets()
+             * You can apply the offsets using:
+             * setAccOffsets(xyzFloat yourOffsets) and setGyrOffsets(xyzFloat yourOffsets)
+             */
+            log_printf("position your icm20948 flat and don't move it - calibrating...\n");
+            delay(1000);
+            myIMU.autoOffsets();
+            log_printf("done!\n");
 
-        // Set Range to 8G
-        qmc.setRange(QMC5883P_RANGE_8G);
-        qmc5883p_range_t currentRange = qmc.getRange();
-        log_printf("Range: ");
-        switch (currentRange)
-        {
-        case QMC5883P_RANGE_30G:
-            log_printf("±30G\n");
-            break;
-        case QMC5883P_RANGE_12G:
-            log_printf("±12G\n");
-            break;
-        case QMC5883P_RANGE_8G:
-            log_printf("±8G\n");
-            break;
-        case QMC5883P_RANGE_2G:
-            log_printf("±2G\n");
-            break;
-        default:
-            log_printf("Unknown\n");
-            break;
-        }
+            /* enables or disables the acceleration sensor, default: enabled */
+            // myIMU.enableAcc(true);
 
-        // Set SetReset mode to On
-        qmc.setSetResetMode(QMC5883P_SETRESET_ON);
-        qmc5883p_setreset_t currentSetReset = qmc.getSetResetMode();
-        log_printf("Set/Reset Mode: ");
-        switch (currentSetReset)
-        {
-        case QMC5883P_SETRESET_ON:
-            log_printf("Set and Reset On\n");
-            break;
-        case QMC5883P_SETRESET_SETONLY:
-            log_printf("Set Only On\n");
-            break;
-        case QMC5883P_SETRESET_OFF:
-            log_printf("Set and Reset Off\n");
-            break;
-        default:
-            log_printf("Unknown\n");
-            break;
+            /*  ICM20948_ACC_RANGE_2G      2 g   (default)
+             *  ICM20948_ACC_RANGE_4G      4 g
+             *  ICM20948_ACC_RANGE_8G      8 g
+             *  ICM20948_ACC_RANGE_16G    16 g
+             */
+            myIMU.setAccRange(ICM20948_ACC_RANGE_2G);
+
+            /*  Choose a level for the Digital Low Pass Filter or switch it off.
+             *  ICM20948_DLPF_0, ICM20948_DLPF_2, ...... ICM20948_DLPF_7, ICM20948_DLPF_OFF
+             *
+             *  IMPORTANT: This needs to be ICM20948_DLPF_7 if DLPF is used in cycle mode!
+             *
+             *  DLPF       3dB Bandwidth [Hz]      Output Rate [Hz]
+             *    0              246.0               1125/(1+ASRD)
+             *    1              246.0               1125/(1+ASRD)
+             *    2              111.4               1125/(1+ASRD)
+             *    3               50.4               1125/(1+ASRD)
+             *    4               23.9               1125/(1+ASRD)
+             *    5               11.5               1125/(1+ASRD)
+             *    6                5.7               1125/(1+ASRD)
+             *    7              473.0               1125/(1+ASRD)
+             *    OFF           1209.0               4500
+             *
+             *    ASRD = Accelerometer Sample Rate Divider (0...4095)
+             *    You achieve lowest noise using level 6
+             */
+            myIMU.setAccDLPF(ICM20948_DLPF_6);
+
+            /*  Acceleration sample rate divider divides the output rate of the accelerometer.
+             *  Sample rate = Basic sample rate / (1 + divider)
+             *  It can only be applied if the corresponding DLPF is not off!
+             *  Divider is a number 0...4095 (different range compared to gyroscope)
+             *  If sample rates are set for the accelerometer and the gyroscope, the gyroscope
+             *  sample rate has priority.
+             */
+            // myIMU.setAccSampleRateDivider(10);
+
+            /* You can set the following modes for the magnetometer:
+             * AK09916_PWR_DOWN          Power down to save energy
+             * AK09916_TRIGGER_MODE      Measurements on request, a measurement is triggered by
+             *                           calling setMagOpMode(AK09916_TRIGGER_MODE)
+             * AK09916_CONT_MODE_10HZ    Continuous measurements, 10 Hz rate
+             * AK09916_CONT_MODE_20HZ    Continuous measurements, 20 Hz rate
+             * AK09916_CONT_MODE_50HZ    Continuous measurements, 50 Hz rate
+             * AK09916_CONT_MODE_100HZ   Continuous measurements, 100 Hz rate (default)
+             */
+            myIMU.setMagOpMode(AK09916_CONT_MODE_20HZ);
         }
     }
-
-    pinMode(QMC5883P_SDA, INPUT);
-    pinMode(QMC5883P_SCL, INPUT);
+    myIMU.sleep(true);
+    pinMode(ICM20948_SDA, INPUT);
+    pinMode(ICM20948_SCL, INPUT);
 
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
@@ -1464,50 +1368,31 @@ void loop()
         {
             if (System_Op.init_flag.imu == true)
             {
-                float gx, gy, gz;
+                myIMU.readSensor();
+                xyzFloat gValue;
+                myIMU.getGValues(&gValue);
+                xyzFloat angle;
+                myIMU.getAngles(&angle);
+                float pitch = myIMU.getPitch();
+                float roll = myIMU.getRoll();
 
-                if (qmc.getGaussField(&gx, &gy, &gz))
-                {
-                    display.clearDisplay();
-                    display.setCursor(0, 0);
-                    display.printf("Imu Y");
-                    display.setCursor(0, 10);
-                    // display.printf("gx:%.01f", gx);
-                    // display.setCursor(0, 20);
-                    // display.printf("gy:%.01f", gy);
-                    // display.setCursor(0, 30);
-                    // display.printf("gz:%.01f", gz);
+                // obtain the x and y values of the magnetometer to calculate the heading angle (Yaw)
+                xyzFloat magValues;
+                myIMU.getMagValues(&magValues);
+                float yaw = atan2(magValues.y, magValues.x) * (180.0 / M_PI); // calculate heading angle
 
-                    // 计算水平分量的平方和（B_horizontal_squared）
-                    float B_horizontal_sq = (gx * gx) + (gy * gy);
+                display.clearDisplay();
+                display.setCursor(0, 0);
+                display.printf("Imu Y p:%.01f", pitch);
+                display.setCursor(0, 10);
+                display.printf("r:%.01f", roll);
+                display.setCursor(0, 20);
+                display.printf("y:%.01f", yaw);
 
-                    // 计算磁倾角（I，单位：弧度）
-                    // 使用 atan2() 函数可以更准确地处理所有象限
-                    float I_rad = atan2(gz, sqrt(B_horizontal_sq));
+                display.display();
 
-                    // 将弧度转换为角度
-                    // 弧度转角度公式： 角度 = 弧度 * (180.0 / PI)
-                    float dip_angle = I_rad * (180.0 / PI);
-
-                    // 磁倾角
-                    display.setCursor(0, 10);
-                    display.printf("angle:%.1f deg", dip_angle);
-
-                    display.display();
-
-                    log_printf("imu init successful\n");
-                    log_printf("gx = %.6f  |  gy = %.6f  |  gz = %.6f | dip angle:%.1f deg\n", gx, gy, gz, dip_angle);
-                }
-                else
-                {
-                    display.clearDisplay();
-                    display.setCursor(0, 0);
-                    display.printf("Imu E");
-
-                    display.display();
-
-                    log_printf("imu get data fail\n");
-                }
+                log_printf("imu init successful\n");
+                log_printf("pitch = %.6f  |  roll = %.6f  |  yaw = %.6f\n", pitch, roll, yaw);
 
                 CycleTime = millis() + 500;
             }

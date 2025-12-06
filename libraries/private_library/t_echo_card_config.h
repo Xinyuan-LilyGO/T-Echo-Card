@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-10-31 13:43:18
+ * @LastEditTime: 2025-12-06 14:39:23
  * @License: GPL 3.0
  */
 #pragma once
@@ -73,8 +73,15 @@
 #define WS2812_DATA_2 _PINNUM(1, 12)
 #define WS2812_DATA_3 _PINNUM(0, 28)
 
-// QMC5883P
-#define QMC5883P_SDA IIC_1_SDA
-#define QMC5883P_SCL IIC_1_SCL
+// ICM20948
+#define ICM20948_SDA IIC_1_SDA
+#define ICM20948_SCL IIC_1_SCL
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////
+
+////////////////////////////////////////////////// other define config //////////////////////////////////////////////////
+
+// ICM20948
+#define ICM20948_ADDRESS 0x68
+
+////////////////////////////////////////////////// other define config //////////////////////////////////////////////////
