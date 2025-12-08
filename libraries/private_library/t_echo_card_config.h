@@ -2,7 +2,7 @@
  * @Description: t_echo_card_config
  * @Author: LILYGO
  * @Date: 2024-12-06 14:37:43
- * @LastEditTime: 2025-12-06 14:39:23
+ * @LastEditTime: 2025-12-06 15:11:39
  * @License: GPL 3.0
  */
 #pragma once
@@ -76,6 +76,19 @@
 // ICM20948
 #define ICM20948_SDA IIC_1_SDA
 #define ICM20948_SCL IIC_1_SCL
+
+// Lora S62F(SX1262)
+#define SX1262_CS _PINNUM(0, 11)
+#define SX1262_RST _PINNUM(0, 7)
+#define SX1262_SCLK _PINNUM(0, 13)
+#define SX1262_MOSI _PINNUM(0, 15)
+#define SX1262_MISO _PINNUM(0, 17)
+#define SX1262_BUSY _PINNUM(0, 14)
+#define SX1262_INT _PINNUM(1, 8)
+#define SX1262_DIO1 _PINNUM(1, 8)
+#define SX1262_DIO2 _PINNUM(0, 5)
+#define SX1262_RF_VC1 _PINNUM(0, 27)
+#define SX1262_RF_VC2 _PINNUM(1, 1)
 
 ////////////////////////////////////////////////// gpio config //////////////////////////////////////////////////
 

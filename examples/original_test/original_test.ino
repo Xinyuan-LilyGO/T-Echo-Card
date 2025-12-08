@@ -14,9 +14,10 @@
 #include "PDM.h"
 #include <vector>
 #include "ICM20948_WE.h"
+#include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512061012"
+#define SOFTWARE_LASTEDITTIME "202512080912"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -37,6 +38,7 @@ enum class System_Window
     IMU_TEST,
     GPS_TEST,
     MICROPHONE_TEST,
+    LORA_TEST,
 
     END,
 };
@@ -97,6 +99,7 @@ struct System_Operator
         bool screen = false;
         bool flash = false;
         bool imu = false;
+        bool lora = false;
 
     } init_flag;
 };
@@ -126,6 +129,93 @@ struct Button_Triggered_Operator
     uint8_t paragraph_triggered_count = 0;
 
     volatile bool Interrupt_Flag = false;
+};
+
+struct SX1262_Operator
+{
+    using state = enum {
+        UNCONNECTED, // not connected
+        CONNECTED,   // connected already
+        CONNECTING,  // connecting
+    };
+
+    using mode = enum {
+        LORA, // lora mode
+        FSK,  // fsk mode
+    };
+
+    struct
+    {
+        float value = 910.0;
+        bool change_flag = false;
+    } frequency;
+    struct
+    {
+        float value = 125;
+        bool change_flag = false;
+    } bandwidth;
+    struct
+    {
+        uint8_t value = 12;
+        bool change_flag = false;
+    } spreading_factor;
+    struct
+    {
+        uint8_t value = 8;
+        bool change_flag = false;
+    } coding_rate;
+    struct
+    {
+        uint8_t value = 0xAB;
+        bool change_flag = false;
+    } sync_word;
+    struct
+    {
+        int8_t value = 22;
+        bool change_flag = false;
+    } output_power;
+    struct
+    {
+        float value = 140;
+        bool change_flag = false;
+    } current_limit;
+    struct
+    {
+        int16_t value = 16;
+        bool change_flag = false;
+    } preamble_length;
+    struct
+    {
+        bool value = false;
+        bool change_flag = false;
+    } crc;
+
+    struct
+    {
+
+        uint32_t mac[2] = {0};
+        uint32_t send_data = 0;
+        uint32_t receive_data = 0;
+        uint8_t connection_flag = state::UNCONNECTED;
+        bool send_flag = false;
+        uint8_t error_count = 11;
+    } device_1;
+
+    uint8_t current_mode = mode::LORA;
+
+    volatile bool operation_flag = false;
+    bool initialization_flag = false;
+    bool mode_change_flag = false;
+
+    uint8_t send_package[16] = {'M', 'A', 'C', ':',
+                                (uint8_t)(Local_MAC[1] >> 24), (uint8_t)(Local_MAC[1] >> 16),
+                                (uint8_t)(Local_MAC[1] >> 8), (uint8_t)(Local_MAC[1]),
+                                (uint8_t)(Local_MAC[0] >> 24), (uint8_t)(Local_MAC[0] >> 16),
+                                (uint8_t)(Local_MAC[0] >> 8), (uint8_t)Local_MAC[0],
+                                0, 0, 0, 0};
+
+    float receive_rssi = 0;
+    float receive_snr = 0;
 };
 
 uint8_t Current_Window_Count = 0;
@@ -196,6 +286,11 @@ Adafruit_NeoPixel *Led[] =
         &Led_2,
         &Led_3,
 };
+
+SX1262_Operator SX1262_OP;
+
+SPIClass Custom_SPI_3(NRF_SPIM3, SX1262_MISO, SX1262_SCLK, SX1262_MOSI);
+SX1262 radio = new Module(SX1262_CS, SX1262_DIO1, SX1262_RST, SX1262_BUSY, Custom_SPI_3);
 
 void log_printf(const char *fmt, ...)
 {
@@ -416,6 +511,62 @@ bool BLE_Uart_Initialization(void)
     return true;
 }
 
+bool SX1262_Set_Default_Parameters(String *assertion)
+{
+    if (radio.setFrequency(SX1262_OP.frequency.value) == RADIOLIB_ERR_INVALID_FREQUENCY)
+    {
+        *assertion = "Failed to set frequency value";
+        return false;
+    }
+    if (radio.setBandwidth(SX1262_OP.bandwidth.value) == RADIOLIB_ERR_INVALID_BANDWIDTH)
+    {
+        *assertion = "Failed to set bandwidth value";
+        return false;
+    }
+    if (radio.setOutputPower(SX1262_OP.output_power.value) == RADIOLIB_ERR_INVALID_OUTPUT_POWER)
+    {
+        *assertion = "Failed to set output_power value";
+        return false;
+    }
+    if (radio.setCurrentLimit(SX1262_OP.current_limit.value) == RADIOLIB_ERR_INVALID_CURRENT_LIMIT)
+    {
+        *assertion = "Failed to set current_limit value";
+        return false;
+    }
+    if (radio.setPreambleLength(SX1262_OP.preamble_length.value) == RADIOLIB_ERR_INVALID_PREAMBLE_LENGTH)
+    {
+        *assertion = "Failed to set preamble_length value";
+        return false;
+    }
+    if (radio.setCRC(SX1262_OP.crc.value) == RADIOLIB_ERR_INVALID_CRC_CONFIGURATION)
+    {
+        *assertion = "Failed to set crc value";
+        return false;
+    }
+    if (SX1262_OP.current_mode == SX1262_OP.mode::LORA)
+    {
+        if (radio.setSpreadingFactor(SX1262_OP.spreading_factor.value) == RADIOLIB_ERR_INVALID_SPREADING_FACTOR)
+        {
+            *assertion = "Failed to set spreading_factor value";
+            return false;
+        }
+        if (radio.setCodingRate(SX1262_OP.coding_rate.value) == RADIOLIB_ERR_INVALID_CODING_RATE)
+        {
+            *assertion = "Failed to set coding_rate value";
+            return false;
+        }
+        if (radio.setSyncWord(SX1262_OP.sync_word.value) != RADIOLIB_ERR_NONE)
+        {
+            *assertion = "Failed to set sync_word value";
+            return false;
+        }
+    }
+    else
+    {
+    }
+    return true;
+}
+
 void Window_Init(System_Window Window)
 {
     switch (Window)
@@ -603,6 +754,52 @@ void Window_Init(System_Window Window)
         }
         break;
 
+    case System_Window::LORA_TEST:
+    {
+        Custom_SPI_3.begin();
+        Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
+
+        int16_t state = radio.begin();
+        if (state != RADIOLIB_ERR_NONE)
+        {
+            log_printf("sx1262 init fail\n");
+            log_printf("error code: %d\n", state);
+
+            System_Op.init_flag.lora = false;
+        }
+        else
+        {
+            log_printf("sx1262 init successful\n");
+
+            radio.setRfSwitchPins(SX1262_RF_VC2, SX1262_RF_VC1);
+
+            radio.setDio1Action([]()
+                                { SX1262_OP.operation_flag = true; });
+
+            String buffer_str;
+            if (SX1262_Set_Default_Parameters(&buffer_str) == false)
+            {
+                log_printf("sx1262 failed to set default parameters\n");
+                log_printf("sx1262 assertion: %s\n", buffer_str.c_str());
+                System_Op.init_flag.lora = false;
+            }
+
+            if (radio.startReceive() != RADIOLIB_ERR_NONE)
+            {
+                log_printf("sx1262 failed to start receive\n");
+            }
+
+            display.clearDisplay();
+            display.setCursor(0, 0);
+            display.printf("Lora Y UNC");
+            display.display();
+
+            System_Op.init_flag.lora = true;
+        }
+
+        break;
+    }
+
     default:
         break;
     }
@@ -647,6 +844,20 @@ void Window_End(System_Window Window)
 
         pinMode(MICROPHONE_DATA, INPUT);
         pinMode(MICROPHONE_SCLK, INPUT);
+        CycleTime = 0;
+        break;
+    case System_Window::LORA_TEST:
+        radio.sleep();
+        Custom_SPI_3.end();
+        pinMode(SX1262_MISO, INPUT);
+        pinMode(SX1262_MOSI, INPUT);
+        pinMode(SX1262_SCLK, INPUT);
+        pinMode(SX1262_CS, INPUT);
+        pinMode(SX1262_DIO1, INPUT);
+        pinMode(SX1262_RST, INPUT);
+        pinMode(SX1262_BUSY, INPUT);
+        pinMode(SX1262_RF_VC1, INPUT);
+        pinMode(SX1262_RF_VC2, INPUT);
         CycleTime = 0;
         break;
 
@@ -1041,6 +1252,50 @@ void setup()
     pinMode(ICM20948_SDA, INPUT);
     pinMode(ICM20948_SCL, INPUT);
 
+    Custom_SPI_3.begin();
+    Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
+    int16_t state = radio.begin();
+    if (state != RADIOLIB_ERR_NONE)
+    {
+        log_printf("sx1262 init fail\n");
+        log_printf("error code: %d\n", state);
+
+        System_Op.init_flag.lora = false;
+    }
+    else
+    {
+        log_printf("sx1262 init successful\n");
+
+        radio.setRfSwitchPins(SX1262_RF_VC2, SX1262_RF_VC1);
+
+        radio.setDio1Action([]()
+                            { SX1262_OP.operation_flag = true; });
+
+        String buffer_str;
+        if (SX1262_Set_Default_Parameters(&buffer_str) == false)
+        {
+            log_printf("sx1262 failed to set default parameters\n");
+            log_printf("sx1262 assertion: %s\n", buffer_str.c_str());
+            System_Op.init_flag.lora = false;
+        }
+
+        if (radio.startReceive() != RADIOLIB_ERR_NONE)
+        {
+            log_printf("sx1262 failed to start receive\n");
+        }
+    }
+    radio.sleep();
+    Custom_SPI_3.end();
+    pinMode(SX1262_MISO, INPUT);
+    pinMode(SX1262_MOSI, INPUT);
+    pinMode(SX1262_SCLK, INPUT);
+    pinMode(SX1262_CS, INPUT);
+    pinMode(SX1262_DIO1, INPUT);
+    pinMode(SX1262_RST, INPUT);
+    pinMode(SX1262_BUSY, INPUT);
+    pinMode(SX1262_RF_VC1, INPUT);
+    pinMode(SX1262_RF_VC2, INPUT);
+
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
     pinMode(SPEAKER_EN_2, OUTPUT);
@@ -1108,21 +1363,6 @@ void loop()
         case System_Window::HOME:
             System_Op.sleep_count = 0;
             break;
-        case System_Window::BATTERY_TEST:
-            // delay(300);
-
-            Battery_Control_Switch = !Battery_Control_Switch;
-            if (Battery_Control_Switch == true)
-            {
-                digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH); // Enable battery voltage measurement
-                log_printf("turn on battery voltage measurement\n");
-            }
-            else
-            {
-                digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW); // Turn off battery voltage measurement
-                log_printf("turn off battery voltage measurement\n");
-            }
-            break;
 
         default:
             break;
@@ -1180,6 +1420,35 @@ void loop()
             {
             case System_Window::HOME:
                 System_Op.sleep_count = 0;
+                break;
+            case System_Window::BATTERY_TEST:
+                // delay(300);
+
+                Battery_Control_Switch = !Battery_Control_Switch;
+                if (Battery_Control_Switch == true)
+                {
+                    digitalWrite(BATTERY_MEASUREMENT_CONTROL, HIGH); // Enable battery voltage measurement
+                    log_printf("turn on battery voltage measurement\n");
+                }
+                else
+                {
+                    digitalWrite(BATTERY_MEASUREMENT_CONTROL, LOW); // Turn off battery voltage measurement
+                    log_printf("turn off battery voltage measurement\n");
+                }
+                break;
+            case System_Window::LORA_TEST:
+                if (System_Op.init_flag.lora == true)
+                {
+                    delay(300);
+
+                    SX1262_OP.device_1.send_flag = true;
+                    SX1262_OP.device_1.connection_flag = SX1262_OP.state::CONNECTING;
+                    // clear error count watchdog
+                    SX1262_OP.device_1.error_count = 0;
+                    SX1262_OP.device_1.send_data = 0;
+
+                    CycleTime = 0;
+                }
                 break;
 
             default:
@@ -1552,6 +1821,148 @@ void loop()
 
             CycleTime = millis() + 500;
         }
+        break;
+    case System_Window::LORA_TEST:
+        if (System_Op.init_flag.lora == true)
+        {
+            if (SX1262_OP.device_1.send_flag == true)
+            {
+                if (millis() > CycleTime)
+                {
+                    SX1262_OP.send_package[12] = (uint8_t)(SX1262_OP.device_1.send_data >> 24);
+                    SX1262_OP.send_package[13] = (uint8_t)(SX1262_OP.device_1.send_data >> 16);
+                    SX1262_OP.send_package[14] = (uint8_t)(SX1262_OP.device_1.send_data >> 8);
+                    SX1262_OP.send_package[15] = (uint8_t)SX1262_OP.device_1.send_data;
+
+                    display.clearDisplay();
+                    display.setCursor(0, 0);
+                    display.printf("Lora Y TX");
+                    display.setCursor(0, 15);
+                    display.printf("tx:%u", SX1262_OP.device_1.send_data);
+                    display.display();
+
+                    // send another one
+                    log_printf("[SX1262] send packet\n");
+                    log_printf("[SX1262] frequency: %.03f mhz\n", SX1262_OP.frequency.value);
+                    log_printf("[SX1262] bandwidth: %.03f khz\n", SX1262_OP.bandwidth.value);
+                    log_printf("[SX1262] send: %u\n", SX1262_OP.device_1.send_data);
+                    log_printf("local_mac[0]: %#010X, local_mac[1]: %#010X\n", Local_MAC[0], Local_MAC[1]);
+
+                    radio.transmit(SX1262_OP.send_package, 16);
+
+                    radio.startReceive();
+
+                    SX1262_OP.operation_flag = false;
+                    SX1262_OP.device_1.send_flag = false;
+                }
+            }
+
+            if (SX1262_OP.operation_flag == true)
+            {
+                uint8_t receive_package[16] = {'\0'};
+                if (radio.readData(receive_package, 16) == RADIOLIB_ERR_NONE)
+                {
+                    if ((receive_package[0] == 'M') &&
+                        (receive_package[1] == 'A') &&
+                        (receive_package[2] == 'C') &&
+                        (receive_package[3] == ':'))
+                    {
+                        uint32_t temp_mac[2];
+                        temp_mac[0] =
+                            ((uint32_t)receive_package[8] << 24) |
+                            ((uint32_t)receive_package[9] << 16) |
+                            ((uint32_t)receive_package[10] << 8) |
+                            (uint32_t)receive_package[11];
+                        temp_mac[1] =
+                            ((uint32_t)receive_package[4] << 24) |
+                            ((uint32_t)receive_package[5] << 16) |
+                            ((uint32_t)receive_package[6] << 8) |
+                            (uint32_t)receive_package[7];
+
+                        if ((temp_mac[0] != Local_MAC[0]) && (temp_mac[1] != Local_MAC[1]))
+                        {
+                            SX1262_OP.device_1.mac[0] = temp_mac[0];
+                            SX1262_OP.device_1.mac[1] = temp_mac[1];
+                            SX1262_OP.device_1.receive_data =
+                                ((uint32_t)receive_package[12] << 24) |
+                                ((uint32_t)receive_package[13] << 16) |
+                                ((uint32_t)receive_package[14] << 8) |
+                                (uint32_t)receive_package[15];
+
+                            // packet was successfully received
+                            log_printf("[SX1262] received packet\n");
+
+                            // print data of the packet
+                            // for (int i = 0; i < 16; i++)
+                            // {
+                            //    log_printf("[SX1262] Data[%d]: %#X\n", i, receive_package[i]);
+                            // }
+                            log_printf("[SX1262] receive_mac[0]: %#010X, receive_mac[1]: %#010X\n", temp_mac[0], temp_mac[1]);
+                            log_printf("[SX1262] receive_data: %u\n", SX1262_OP.device_1.receive_data);
+
+                            // print RSSI (Received Signal Strength Indicator)
+                            SX1262_OP.receive_rssi = radio.getRSSI();
+                            log_printf("[SX1262] rssi: %.1f dbm\n", SX1262_OP.receive_rssi);
+
+                            // print SNR (Signal-to-Noise Ratio)
+                            SX1262_OP.receive_snr = radio.getSNR();
+                            log_printf("[SX1262] snr: %.1f db\n", SX1262_OP.receive_snr);
+
+                            display.clearDisplay();
+                            display.setCursor(0, 0);
+                            display.printf("Lora Y RX");
+                            display.setCursor(0, 10);
+                            display.printf("rx:%d", SX1262_OP.device_1.receive_data);
+                            display.setCursor(0, 20);
+                            display.printf("rssi:%.1fdbm", SX1262_OP.receive_rssi);
+                            display.display();
+
+                            SX1262_OP.device_1.send_data = SX1262_OP.device_1.receive_data + 1;
+
+                            SX1262_OP.device_1.send_flag = true;
+                            SX1262_OP.device_1.connection_flag = SX1262_OP.state::CONNECTED;
+
+                            // clear error count watchdog
+                            SX1262_OP.device_1.error_count = 0;
+                            CycleTime = millis() + 3000;
+                        }
+                    }
+                }
+
+                SX1262_OP.operation_flag = false;
+            }
+
+            if (millis() > CycleTime_2)
+            {
+                SX1262_OP.device_1.error_count++;
+                if (SX1262_OP.device_1.error_count > 10)
+                {
+                    SX1262_OP.device_1.error_count = 11;
+                    SX1262_OP.device_1.send_data = 0;
+                    SX1262_OP.device_1.connection_flag = SX1262_OP.state::UNCONNECTED;
+
+                    display.clearDisplay();
+                    display.setCursor(0, 0);
+                    display.printf("Lora Y UNC");
+                    display.display();
+                }
+                CycleTime_2 = millis() + 2000;
+            }
+        }
+        else
+        {
+            if (millis() > CycleTime)
+            {
+                display.clearDisplay();
+                display.setCursor(0, 0);
+                display.printf("Lora N");
+                display.display();
+
+                log_printf("Lora init fail\n");
+                CycleTime = millis() + 1000;
+            }
+        }
+
         break;
 
     default:
