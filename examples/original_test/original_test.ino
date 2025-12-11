@@ -17,7 +17,7 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512111144"
+#define SOFTWARE_LASTEDITTIME "202512111351"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -903,7 +903,24 @@ void System_Sleep(bool mode)
         pinMode(RT9080_EN, INPUT_PULLDOWN);
 
         // 停止广播
-        Bluefruit.Advertising.stop();
+        if (Bluefruit.Advertising.stop() == false)
+        {
+            for (uint8_t i = 0; i < 10; i++)
+            {
+                Bluefruit.disconnect(Bluefruit.connHandle());
+
+                delay(500);
+
+                if (Bluefruit.Advertising.stop() == true)
+                {
+                    break;
+                }
+                else
+                {
+                    log_printf("Bluefruit.Advertising.stop() fail\n");
+                }
+            }
+        }
     }
     else
     {
