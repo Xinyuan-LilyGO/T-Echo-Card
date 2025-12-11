@@ -17,13 +17,13 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512080912"
+#define SOFTWARE_LASTEDITTIME "202512111144"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
 
 #define SAMPLE_RATE 44100
-#define MAX_IIS_DATA_TRANSMIT_SIZE 512
+#define MAX_IIS_DATA_TRANSMIT_SIZE 1024
 
 #define MAX_PDM_DATA_TRANSMIT_SIZE 256
 #define MAX_PDM_DATA_TRANSMIT_MULTIPLE 2
@@ -229,13 +229,13 @@ size_t CycleTime_2 = 0;
 bool Gps_Positioning_Flag = false;
 size_t Gps_Positioning_Time = 0;
 
-uint32_t Iis_Tx_Buffer[MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
+uint32_t Iis_Tx_Buffer[2][MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
 
 // 已经发送的数据大小
 size_t Iis_Send_Data_Size = 0;
-bool Iis_Transmit_Flag = false;
 
-bool Iis_Data_Convert_Wait = false;
+bool Current_Iis_Tx_Buffer_Count = 0;
+uint8_t Iis_Tx_Buffer_Full_Flag[2] = {false};
 
 // 用于存储rdm接收流的容器
 std::vector<int16_t> Pdm_Rx_Stream;
@@ -576,7 +576,6 @@ void Window_Init(System_Window Window)
         break;
     case System_Window::FLASH_TEST:
         // Custom_SPI.setClockDivider(SPI_CLOCK_DIV2); // dual frequency 32MHz
-
         flash.begin();
         flashTransport.setClockSpeed(32000000UL, 0);
         flashTransport.runCommand(0xAB); // Exit deep sleep mode
@@ -815,12 +814,12 @@ void Window_End(System_Window Window)
     case System_Window::FLASH_TEST:
         flashTransport.runCommand(0xB9); // Flash Deep Sleep
         flash.end();
-        pinMode(ZD25WQ32C_SCLK, INPUT);
-        pinMode(ZD25WQ32C_CS, INPUT);
-        pinMode(ZD25WQ32C_IO0, INPUT);
-        pinMode(ZD25WQ32C_IO1, INPUT);
-        pinMode(ZD25WQ32C_IO2, INPUT);
-        pinMode(ZD25WQ32C_IO3, INPUT);
+        nrf_gpio_cfg_default(ZD25WQ32C_SCLK);
+        nrf_gpio_cfg_default(ZD25WQ32C_CS);
+        nrf_gpio_cfg_default(ZD25WQ32C_IO0);
+        nrf_gpio_cfg_default(ZD25WQ32C_IO1);
+        nrf_gpio_cfg_default(ZD25WQ32C_IO2);
+        nrf_gpio_cfg_default(ZD25WQ32C_IO3);
         CycleTime = 0;
         break;
     case System_Window::BATTERY_TEST:
@@ -829,8 +828,6 @@ void Window_End(System_Window Window)
         break;
     case System_Window::IMU_TEST:
         myIMU.sleep(true);
-        pinMode(ICM20948_SDA, INPUT);
-        pinMode(ICM20948_SCL, INPUT);
         CycleTime = 0;
         break;
     case System_Window::GPS_TEST:
@@ -842,22 +839,22 @@ void Window_End(System_Window Window)
     case System_Window::MICROPHONE_TEST:
         PDM.end();
 
-        pinMode(MICROPHONE_DATA, INPUT);
-        pinMode(MICROPHONE_SCLK, INPUT);
+        nrf_gpio_cfg_default(MICROPHONE_DATA);
+        nrf_gpio_cfg_default(MICROPHONE_SCLK);
         CycleTime = 0;
         break;
     case System_Window::LORA_TEST:
         radio.sleep();
         Custom_SPI_3.end();
-        pinMode(SX1262_MISO, INPUT);
-        pinMode(SX1262_MOSI, INPUT);
-        pinMode(SX1262_SCLK, INPUT);
-        pinMode(SX1262_CS, INPUT);
-        pinMode(SX1262_DIO1, INPUT);
-        pinMode(SX1262_RST, INPUT);
-        pinMode(SX1262_BUSY, INPUT);
-        pinMode(SX1262_RF_VC1, INPUT);
-        pinMode(SX1262_RF_VC2, INPUT);
+        nrf_gpio_cfg_default(SX1262_MISO);
+        nrf_gpio_cfg_default(SX1262_MOSI);
+        nrf_gpio_cfg_default(SX1262_SCLK);
+        nrf_gpio_cfg_default(SX1262_CS);
+        nrf_gpio_cfg_default(SX1262_DIO1);
+        nrf_gpio_cfg_default(SX1262_RST);
+        nrf_gpio_cfg_default(SX1262_BUSY);
+        nrf_gpio_cfg_default(SX1262_RF_VC1);
+        nrf_gpio_cfg_default(SX1262_RF_VC2);
         CycleTime = 0;
         break;
 
@@ -872,16 +869,14 @@ void System_Sleep(bool mode)
     {
         Serial.end();
 
-        pinMode(SCREEN_SDA, INPUT);
-        pinMode(SCREEN_SCL, INPUT);
+        nrf_gpio_cfg_default(SCREEN_SDA);
+        nrf_gpio_cfg_default(SCREEN_SCL);
         Wire.end();
 
-        pinMode(BUZZER_DATA, INPUT);
+        nrf_gpio_cfg_default(BUZZER_DATA);
 
-        pinMode(GPS_WAKE_UP, INPUT);
-        pinMode(GPS_RF_EN, INPUT);
-
-        pinMode(nRF52840_BOOT, INPUT);
+        nrf_gpio_cfg_default(GPS_WAKE_UP);
+        nrf_gpio_cfg_default(GPS_RF_EN);
 
         for (uint8_t i = 0; i < sizeof(Led) / sizeof(*Led); i++)
         {
@@ -889,10 +884,20 @@ void System_Sleep(bool mode)
             Led[i]->show();
         }
 
+        nrf_gpio_cfg_default(WS2812_DATA_1);
+        nrf_gpio_cfg_default(WS2812_DATA_2);
+        nrf_gpio_cfg_default(WS2812_DATA_3);
+
+        noTone(BUZZER_DATA);
+        nrf_gpio_cfg_default(BUZZER_DATA);
+
         IIS_Bus->end();
 
-        pinMode(SPEAKER_EN, INPUT);
-        pinMode(SPEAKER_EN_2, INPUT);
+        nrf_gpio_cfg_default(MICROPHONE_SCLK);
+        nrf_gpio_cfg_default(MICROPHONE_DATA);
+
+        nrf_gpio_cfg_default(SPEAKER_EN);
+        nrf_gpio_cfg_default(SPEAKER_EN_2);
 
         digitalWrite(RT9080_EN, LOW);
         pinMode(RT9080_EN, INPUT_PULLDOWN);
@@ -911,14 +916,19 @@ void System_Sleep(bool mode)
         digitalWrite(RT9080_EN, HIGH);
         delay(100);
 
+        for (uint8_t i = 0; i < sizeof(Led) / sizeof(*Led); i++)
+        {
+            Led[i]->begin();
+            Led[i]->show();
+            Led[i]->setBrightness(50);
+        }
+
         pinMode(SPEAKER_EN, OUTPUT);
         digitalWrite(SPEAKER_EN, HIGH);
         pinMode(SPEAKER_EN_2, OUTPUT);
         digitalWrite(SPEAKER_EN_2, HIGH);
 
         IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
-
-        pinMode(nRF52840_BOOT, INPUT_PULLUP);
 
         Serial.begin(115200);
 
@@ -928,9 +938,7 @@ void System_Sleep(bool mode)
         digitalWrite(BUZZER_DATA, LOW);
 
         pinMode(GPS_WAKE_UP, OUTPUT);
-        digitalWrite(GPS_WAKE_UP, HIGH); // gps开启
         pinMode(GPS_RF_EN, OUTPUT);
-        digitalWrite(GPS_RF_EN, HIGH);
 
         Wire.setPins(SCREEN_SDA, SCREEN_SCL);
         Wire.begin();
@@ -955,69 +963,89 @@ void Iis_Data_Convert(const void *input_data, void *out_buffer, size_t input_dat
     memcpy(out_ptr, input_ptr, byte);
 }
 
-void music_play_welcome()
+bool music_play(const uint16_t *data, size_t size)
 {
     // 播放音乐测试
     printf("music play start\n");
 
     Iis_Send_Data_Size = 0;
-    Iis_Data_Convert(c2_b16_s44100_2, Iis_Tx_Buffer, 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
+    Iis_Data_Convert(data, Iis_Tx_Buffer, 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
+    Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = true;
 
-    if (IIS_Bus->start_transmit(Iis_Tx_Buffer, nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
+    if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
     {
         Iis_Send_Data_Size += MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t);
-        Iis_Transmit_Flag = true;
+
+        Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+        Current_Iis_Tx_Buffer_Count = !Current_Iis_Tx_Buffer_Count;
     }
     else
     {
-        Iis_Transmit_Flag = false;
-        printf("music play fail (ES8311->start_transmit fail)\n");
+        printf("music play fail\n");
+
+        return false;
     }
 
     while (1)
     {
-        if (Iis_Transmit_Flag == true)
+        if (Iis_Send_Data_Size >= size)
         {
-            if (Iis_Send_Data_Size >= sizeof(c2_b16_s44100_2))
-            {
-                printf("music play finish iis_send_data_size: %d\n", Iis_Send_Data_Size);
-                IIS_Bus->stop_transmit();
+            printf("music_play finish iis_send_data_size: %d\n", Iis_Send_Data_Size);
+            IIS_Bus->stop_transmit();
 
-                Iis_Data_Convert_Wait = false;
-                Iis_Transmit_Flag = false;
-                break;
-            }
-            else
+            break;
+        }
+        else
+        {
+            if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == false)
             {
-                if (Iis_Data_Convert_Wait == false)
+                size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), size - Iis_Send_Data_Size);
+
+                // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
+                // printf("iis send data length: %d\n", buffer_length);
+
+                if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
                 {
-                    size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), sizeof(c2_b16_s44100_2) - Iis_Send_Data_Size);
-
-                    // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
-                    // printf("iis send data length: %d\n", buffer_length);
-
-                    if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
-                    {
-                        memset(Iis_Tx_Buffer, 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
-                    }
-                    Iis_Data_Convert(c2_b16_s44100_2, Iis_Tx_Buffer, Iis_Send_Data_Size, buffer_length);
-
-                    Iis_Send_Data_Size += buffer_length;
-
-                    Iis_Data_Convert_Wait = true;
+                    memset(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
                 }
+                Iis_Data_Convert(data, Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], Iis_Send_Data_Size, buffer_length);
+
+                Iis_Send_Data_Size += buffer_length;
+
+                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = true;
             }
-
-            if (IIS_Bus->get_write_event_flag() == true)
+            else if (Iis_Tx_Buffer_Full_Flag[!Current_Iis_Tx_Buffer_Count] == false)
             {
-                if (Iis_Data_Convert_Wait == true)
+                size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), size - Iis_Send_Data_Size);
+
+                // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
+                // printf("iis send data length: %d\n", buffer_length);
+
+                if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
                 {
-                    IIS_Bus->set_next_write_data(Iis_Tx_Buffer);
-                    Iis_Data_Convert_Wait = false;
+                    memset(Iis_Tx_Buffer[!Current_Iis_Tx_Buffer_Count], 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
                 }
+                Iis_Data_Convert(data, Iis_Tx_Buffer[!Current_Iis_Tx_Buffer_Count], Iis_Send_Data_Size, buffer_length);
+
+                Iis_Send_Data_Size += buffer_length;
+
+                Iis_Tx_Buffer_Full_Flag[!Current_Iis_Tx_Buffer_Count] = true;
+            }
+        }
+
+        if (IIS_Bus->get_write_event_flag() == true)
+        {
+            if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == true)
+            {
+                IIS_Bus->set_next_write_data(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count]);
+                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+
+                Current_Iis_Tx_Buffer_Count = !Current_Iis_Tx_Buffer_Count;
             }
         }
     }
+
+    return true;
 }
 
 void setup()
@@ -1106,13 +1134,13 @@ void setup()
     Serial.println("[T-Echo-Card_" + (String)BOARD_VERSION "][" + (String)SOFTWARE_NAME +
                    "]_firmware_" + (String)SOFTWARE_LASTEDITTIME);
 
-    pinMode(KEY_1, INPUT_PULLUP);
     pinMode(nRF52840_BOOT, INPUT_PULLUP);
+    pinMode(KEY_1, INPUT_PULLUP);
 
     pinMode(GPS_WAKE_UP, OUTPUT);
-    digitalWrite(GPS_WAKE_UP, HIGH); // gps开启
+    digitalWrite(GPS_WAKE_UP, LOW); // gps关闭
     pinMode(GPS_RF_EN, OUTPUT);
-    digitalWrite(GPS_RF_EN, HIGH);
+    digitalWrite(GPS_RF_EN, LOW);
 
     pinMode(BUZZER_DATA, OUTPUT);
     digitalWrite(BUZZER_DATA, LOW);
@@ -1143,12 +1171,13 @@ void setup()
     }
     flashTransport.runCommand(0xB9); // Flash Deep Sleep
     flash.end();
-    pinMode(ZD25WQ32C_SCLK, INPUT);
-    pinMode(ZD25WQ32C_CS, INPUT);
-    pinMode(ZD25WQ32C_IO0, INPUT);
-    pinMode(ZD25WQ32C_IO1, INPUT);
-    pinMode(ZD25WQ32C_IO2, INPUT);
-    pinMode(ZD25WQ32C_IO3, INPUT);
+
+    nrf_gpio_cfg_default(ZD25WQ32C_SCLK);
+    nrf_gpio_cfg_default(ZD25WQ32C_CS);
+    nrf_gpio_cfg_default(ZD25WQ32C_IO0);
+    nrf_gpio_cfg_default(ZD25WQ32C_IO1);
+    nrf_gpio_cfg_default(ZD25WQ32C_IO2);
+    nrf_gpio_cfg_default(ZD25WQ32C_IO3);
 
     Wire.setPins(ICM20948_SDA, ICM20948_SCL);
     if (myIMU.init() == false)
@@ -1249,8 +1278,6 @@ void setup()
         }
     }
     myIMU.sleep(true);
-    pinMode(ICM20948_SDA, INPUT);
-    pinMode(ICM20948_SCL, INPUT);
 
     Custom_SPI_3.begin();
     Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
@@ -1286,15 +1313,15 @@ void setup()
     }
     radio.sleep();
     Custom_SPI_3.end();
-    pinMode(SX1262_MISO, INPUT);
-    pinMode(SX1262_MOSI, INPUT);
-    pinMode(SX1262_SCLK, INPUT);
-    pinMode(SX1262_CS, INPUT);
-    pinMode(SX1262_DIO1, INPUT);
-    pinMode(SX1262_RST, INPUT);
-    pinMode(SX1262_BUSY, INPUT);
-    pinMode(SX1262_RF_VC1, INPUT);
-    pinMode(SX1262_RF_VC2, INPUT);
+    nrf_gpio_cfg_default(SX1262_MISO);
+    nrf_gpio_cfg_default(SX1262_MOSI);
+    nrf_gpio_cfg_default(SX1262_SCLK);
+    nrf_gpio_cfg_default(SX1262_CS);
+    nrf_gpio_cfg_default(SX1262_DIO1);
+    nrf_gpio_cfg_default(SX1262_RST);
+    nrf_gpio_cfg_default(SX1262_BUSY);
+    nrf_gpio_cfg_default(SX1262_RF_VC1);
+    nrf_gpio_cfg_default(SX1262_RF_VC2);
 
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
@@ -1305,7 +1332,7 @@ void setup()
 
     Window_Init(Current_Window);
 
-    music_play_welcome();
+    music_play(c2_b16_s44100_2, sizeof(c2_b16_s44100_2));
 
     Buzzer_Trigger(150);
 
@@ -1337,26 +1364,7 @@ void loop()
 
     if (digitalRead(KEY_1) == LOW)
     {
-        if (Iis_Transmit_Flag == false)
-        {
-            delay(300);
-            // 播放音乐测试
-            printf("music play start\n");
-
-            Iis_Send_Data_Size = 0;
-            Iis_Data_Convert(c2_b16_s44100_3, Iis_Tx_Buffer, 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
-
-            if (IIS_Bus->start_transmit(Iis_Tx_Buffer, nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
-            {
-                Iis_Send_Data_Size += MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t);
-                Iis_Transmit_Flag = true;
-            }
-            else
-            {
-                Iis_Transmit_Flag = false;
-                printf("music play fail (ES8311->start_transmit fail)\n");
-            }
-        }
+        music_play(c2_b16_s44100_3, sizeof(c2_b16_s44100_3));
 
         switch (Current_Window)
         {
@@ -1366,47 +1374,6 @@ void loop()
 
         default:
             break;
-        }
-    }
-
-    if (Iis_Transmit_Flag == true)
-    {
-        if (Iis_Send_Data_Size >= sizeof(c2_b16_s44100_3))
-        {
-            printf("music play finish iis_send_data_size: %d\n", Iis_Send_Data_Size);
-            IIS_Bus->stop_transmit();
-
-            Iis_Data_Convert_Wait = false;
-            Iis_Transmit_Flag = false;
-        }
-        else
-        {
-            if (Iis_Data_Convert_Wait == false)
-            {
-                size_t buffer_length = min(MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t), sizeof(c2_b16_s44100_3) - Iis_Send_Data_Size);
-
-                // printf("iis_send_data_size: %d\n", Iis_Send_Data_Size);
-                // printf("iis send data length: %d\n", buffer_length);
-
-                if (buffer_length != MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t))
-                {
-                    memset(Iis_Tx_Buffer, 0, MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
-                }
-                Iis_Data_Convert(c2_b16_s44100_3, Iis_Tx_Buffer, Iis_Send_Data_Size, buffer_length);
-
-                Iis_Send_Data_Size += buffer_length;
-
-                Iis_Data_Convert_Wait = true;
-            }
-        }
-
-        if (IIS_Bus->get_write_event_flag() == true)
-        {
-            if (Iis_Data_Convert_Wait == true)
-            {
-                IIS_Bus->set_next_write_data(Iis_Tx_Buffer);
-                Iis_Data_Convert_Wait = false;
-            }
         }
     }
 
@@ -1538,10 +1505,10 @@ void loop()
                 while (1) // 开始睡眠
                 {
                     waitForEvent();
-                    // systemOff(KEY_1, LOW);
+                    // systemOff(nRF52840_BOOT, LOW);
                     delay(1000);
 
-                    if (digitalRead(KEY_1) == LOW)
+                    if (digitalRead(nRF52840_BOOT) == LOW)
                     {
                         System_Sleep(false);
 
