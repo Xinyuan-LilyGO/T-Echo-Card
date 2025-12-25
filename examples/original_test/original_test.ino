@@ -17,7 +17,7 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512111351"
+#define SOFTWARE_LASTEDITTIME "202512251405"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -1152,7 +1152,7 @@ void setup()
                    "]_firmware_" + (String)SOFTWARE_LASTEDITTIME);
 
     pinMode(nRF52840_BOOT, INPUT_PULLUP);
-    pinMode(KEY_1, INPUT_PULLUP);
+    pinMode(KEY_1, INPUT);
 
     pinMode(GPS_WAKE_UP, OUTPUT);
     digitalWrite(GPS_WAKE_UP, LOW); // gps关闭
@@ -1383,15 +1383,15 @@ void loop()
     {
         music_play(c2_b16_s44100_3, sizeof(c2_b16_s44100_3));
 
-        switch (Current_Window)
-        {
-        case System_Window::HOME:
-            System_Op.sleep_count = 0;
-            break;
+        // switch (Current_Window)
+        // {
+        // case System_Window::HOME:
+        //     System_Op.sleep_count = 0;
+        //     break;
 
-        default:
-            break;
-        }
+        // default:
+        //     break;
+        // }
     }
 
     if (Key_Scanning() == true)
@@ -1456,7 +1456,7 @@ void loop()
 
                 System_Sleep(true);
 
-                systemOff(KEY_1, LOW);
+                systemOff(nRF52840_BOOT, LOW);
             }
             break;
         case Button_Triggered_OP.gesture::LONG_PRESS:
