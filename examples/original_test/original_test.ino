@@ -17,7 +17,7 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512251405"
+#define SOFTWARE_LASTEDITTIME "202512261400"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -28,7 +28,7 @@
 #define MAX_PDM_DATA_TRANSMIT_SIZE 256
 #define MAX_PDM_DATA_TRANSMIT_MULTIPLE 2
 
-#define MAX_UART_RX_BUFFER_SIZE 1024
+#define MAX_UART_RX_BUFFER_SIZE 512
 
 enum class System_Window
 {
