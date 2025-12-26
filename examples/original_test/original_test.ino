@@ -17,7 +17,7 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512261400"
+#define SOFTWARE_LASTEDITTIME "202512261429"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -28,7 +28,7 @@
 #define MAX_PDM_DATA_TRANSMIT_SIZE 256
 #define MAX_PDM_DATA_TRANSMIT_MULTIPLE 2
 
-#define MAX_UART_RX_BUFFER_SIZE 512
+#define MAX_UART_RX_BUFFER_SIZE 1024
 
 enum class System_Window
 {
@@ -240,7 +240,7 @@ uint8_t Iis_Tx_Buffer_Full_Flag[2] = {false};
 // 用于存储rdm接收流的容器
 std::vector<int16_t> Pdm_Rx_Stream;
 
-uint8_t Uart_Rx_Buffer[MAX_UART_RX_BUFFER_SIZE] = {0};
+auto Uart_Rx_Buffer = std::make_unique<uint8_t[]>(MAX_UART_RX_BUFFER_SIZE);
 size_t Uart_Rx_Count = 0;
 
 /* UART Serivce: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
@@ -1685,7 +1685,7 @@ void loop()
                 Uart_Rx_Buffer[MAX_UART_RX_BUFFER_SIZE - 1] = '\0';
 
                 // 打印RMC的相关信息
-                log_printf("---begin---\n%s \n---end---\n", Uart_Rx_Buffer);
+                log_printf("---begin---\n%s \n---end---\n", Uart_Rx_Buffer.get());
 
                 log_printf("---RMC---\n");
 
@@ -1707,7 +1707,7 @@ void loop()
                 }
 
                 // 调用parse_rmc_info进行解码
-                if (Nrf52840_Gnss->parse_rmc_info(Uart_Rx_Buffer, Uart_Rx_Count, rmc) == true)
+                if (Nrf52840_Gnss->parse_rmc_info(Uart_Rx_Buffer.get(), Uart_Rx_Count, rmc) == true)
                 {
                     log_printf("location status: %s\n", (rmc.location_status).c_str());
 
