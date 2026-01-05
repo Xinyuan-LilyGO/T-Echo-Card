@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-08-25 16:09:08
- * @LastEditTime: 2025-09-12 15:51:57
+ * @LastEditTime: 2026-01-02 12:03:48
  * @License: GPL 3.0
  */
 
@@ -87,6 +87,8 @@ void setup()
         printf("failed to start pdm\n");
         delay(100);
     }
+
+    PDM.setGain(100);
 
     IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_128X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
