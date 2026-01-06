@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-05 11:30:50
+ * @LastEditTime: 2026-01-06 14:56:26
  * @License: GPL 3.0
  */
 
@@ -19,8 +19,8 @@
 #define PDM_SAMPLE_RATE 16000
 #define IIS_SAMPLE_RATE 8000
 
-#define MAX_IIS_DATA_TRANSMIT_COUNT 3
-#define MAX_IIS_DATA_TRANSMIT_SIZE 80 * MAX_IIS_DATA_TRANSMIT_COUNT * 3
+#define MAX_IIS_DATA_TRANSMIT_COUNT 10
+#define MAX_IIS_DATA_TRANSMIT_SIZE 80 * MAX_IIS_DATA_TRANSMIT_COUNT
 
 #define MAX_IIS_TX_BUFFER_COUNT 2
 
@@ -56,8 +56,9 @@ bool Codec2_Init_Flag = false;
 
 size_t Cycle_Time = 0;
 
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
 uint32_t Iis_Tx_Buffer[MAX_IIS_TX_BUFFER_COUNT][MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
+
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
 
 void Iis_Data_Convert(const void *input_data, void *out_buffer, size_t input_data_start_index, size_t byte)
 {
@@ -191,7 +192,7 @@ void Codec2_Encode_Task(void *parameter)
                 auto codec2_encode_buffer = std::make_unique<uint8_t[]>(Codec2_Encode_Size);
 
                 // 编码 (压缩) - 使用8kHz数据
-                // codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
+                codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
 
                 // Codec2_Transmit_Buffer.push_back(std::move(codec2_encode_buffer));
 
@@ -244,24 +245,24 @@ void Iis_Tx_Handle(void *parameter)
 
     while (1)
     {
-        if (Codec2_Decode_Buffer.size() > 9)
+        if (Codec2_Decode_Buffer.empty() == false)
         {
             for (uint8_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
             {
                 if (Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] == false)
                 {
-                    if (Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] < MAX_IIS_DATA_TRANSMIT_SIZE)
+                    if (Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] < Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT)
                     {
                         Iis_Data_Convert(Codec2_Decode_Buffer.front().get(),
                                          &Iis_Tx_Buffer[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT][Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]],
-                                         0, Iis_Data_Transmit_Size * sizeof(uint32_t));
+                                         0, Sample_8khz_Int8_t_Size);
 
                         Serial.printf("Iis_Tx_Buffer_Count[%d]: %d\n",
                                       (Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT, Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]);
 
                         Codec2_Decode_Buffer.erase(Codec2_Decode_Buffer.begin());
 
-                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] += Iis_Data_Transmit_Size;
+                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] += (Sample_8khz_Int8_t_Size / sizeof(uint32_t));
                     }
                     else
                     {
@@ -312,7 +313,7 @@ void setup()
     {
         if (Codec2_Init_Flag == true)
         {
-            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
+            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT) == true)
             {
                 Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
                 Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
