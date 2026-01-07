@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-06 14:56:26
+ * @LastEditTime: 2026-01-07 09:07:24
  * @License: GPL 3.0
  */
 
@@ -194,9 +194,9 @@ void Codec2_Encode_Task(void *parameter)
                 // 编码 (压缩) - 使用8kHz数据
                 codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
 
-                // Codec2_Transmit_Buffer.push_back(std::move(codec2_encode_buffer));
+                Codec2_Transmit_Buffer.push_back(std::move(codec2_encode_buffer));
 
-                Codec2_Decode_Buffer.push_back(std::move(downsampled_buffer));
+                // Codec2_Decode_Buffer.push_back(std::move(downsampled_buffer));
             }
         }
 
@@ -210,30 +210,30 @@ void Codec2_Decode_Task(void *parameter)
 
     while (1)
     {
-        // if (Codec2_Decode_Buffer.size() < MAX_CODEC2_DECODE_BUFFER_COUNT)
-        // {
-        //     if (Codec2_Transmit_Buffer.empty() == false)
-        //     {
-        //         auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
+        if (Codec2_Decode_Buffer.size() < MAX_CODEC2_DECODE_BUFFER_COUNT)
+        {
+            if (Codec2_Transmit_Buffer.empty() == false)
+            {
+                auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
 
-        //         // 解码 (还原) - 得到8kHz数据
-        //         codec2_decode(Codec2_Status, codec2_decode_buffer.get(), Codec2_Transmit_Buffer.front().get());
-        //         Codec2_Transmit_Buffer.erase(Codec2_Transmit_Buffer.begin());
+                // 解码 (还原) - 得到8kHz数据
+                codec2_decode(Codec2_Status, codec2_decode_buffer.get(), Codec2_Transmit_Buffer.front().get());
+                Codec2_Transmit_Buffer.erase(Codec2_Transmit_Buffer.begin());
 
-        //         // // 升采样：从8kHz升到16kHz
-        //         // auto upsampled_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
+                // // 升采样：从8kHz升到16kHz
+                // auto upsampled_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
 
-        //         // 调用升采样函数
-        //         // upsample_8k_to_16k(codec2_decode_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
-        //         // upsample_8k_to_16k(downsampled_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
+                // 调用升采样函数
+                // upsample_8k_to_16k(codec2_decode_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
+                // upsample_8k_to_16k(downsampled_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
 
-        //         // printf("codec2_encode_decode finish\n");
+                // printf("codec2_encode_decode finish\n");
 
-        //         // Iis_Stream.insert(Iis_Stream.end(), downsampled_buffer.get(), downsampled_buffer.get() + Sample_8khz_Int16_t_Size);
-        //         // Iis_Stream.insert(Iis_Stream.end(), codec2_decode_buffer.get(), codec2_decode_buffer.get() + Sample_8khz_Int16_t_Size);
-        //         Codec2_Decode_Buffer.push_back(std::move(codec2_decode_buffer));
-        //     }
-        // }
+                // Iis_Stream.insert(Iis_Stream.end(), downsampled_buffer.get(), downsampled_buffer.get() + Sample_8khz_Int16_t_Size);
+                // Iis_Stream.insert(Iis_Stream.end(), codec2_decode_buffer.get(), codec2_decode_buffer.get() + Sample_8khz_Int16_t_Size);
+                Codec2_Decode_Buffer.push_back(std::move(codec2_decode_buffer));
+            }
+        }
 
         delay(10);
     }
