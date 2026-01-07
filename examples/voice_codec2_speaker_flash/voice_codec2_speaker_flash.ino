@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-07 09:07:24
+ * @LastEditTime: 2026-01-07 17:07:50
  * @License: GPL 3.0
  */
 
@@ -15,22 +15,67 @@
 #include "codec2.h"
 #include <vector>
 #include <malloc.h>
+#include "Adafruit_SPIFlash.h"
 
 #define PDM_SAMPLE_RATE 16000
 #define IIS_SAMPLE_RATE 8000
 
-#define MAX_IIS_DATA_TRANSMIT_COUNT 10
-#define MAX_IIS_DATA_TRANSMIT_SIZE 80 * MAX_IIS_DATA_TRANSMIT_COUNT
+#define MAX_IIS_DATA_TRANSMIT_SIZE 1024
 
 #define MAX_IIS_TX_BUFFER_COUNT 2
 
 #define MAX_PDM_DATA_TRANSMIT_SIZE 512
-#define MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT 3
+#define MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT 16
 
 #define MAX_CODEC2_ENCODE_BUFFER_COUNT 3
 #define MAX_CODEC2_DECODE_BUFFER_COUNT 10
 
 #define MAX_CODEC2_TRANSMIT_BUFFER_COUNT 30
+
+#define MAX_RECORD_AUDIO_TIME_SECONDS 5
+
+#define MAX_FLASH_BUFFER_BLOCK_SIZE 4 * 1024
+
+#define MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE (PDM_SAMPLE_RATE * 16 * 1 * MAX_RECORD_AUDIO_TIME_SECONDS) / 8
+
+#define FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE
+
+enum class Audio_Operating_Status
+{
+    IDLE,
+    RECORDING,
+    ENCODE,
+    DECODE,
+    PLAY,
+};
+
+SPIFlash_Device_t ZD25WQ32C =
+    {
+        total_size : (1UL << 22), /* 4 MiB */
+        start_up_time_us : 12000,
+        manufacturer_id : 0xBA,
+        memory_type : 0x60,
+        capacity : 0x16,
+        max_clock_speed_mhz : 104,
+        quad_enable_bit_mask : 0x02,
+        has_sector_protection : false,
+        supports_fast_read : true,
+        supports_qspi : true,
+        supports_qspi_writes : true,
+        write_status_register_split : false,
+        single_status_byte : false,
+        is_fram : false,
+    };
+
+struct Flash_Buffer_Struct
+{
+    alignas(4) uint8_t data[MAX_FLASH_BUFFER_BLOCK_SIZE];
+};
+
+// 4 byte aligned buffer has best result with nRF QSPI
+// uint8_t Flash_Buffer_Write[MAX_FLASH_BUFFER_BLOCK_SIZE] __attribute__((aligned(4)));
+// uint8_t Flash_Buffer_Read[MAX_FLASH_BUFFER_BLOCK_SIZE] __attribute__((aligned(4)));
+auto Flash_Buffer = std::make_unique<Flash_Buffer_Struct>();
 
 CODEC2 *Codec2_Status;
 
@@ -43,12 +88,14 @@ int32_t Codec2_Encode_Size;
 
 uint8_t Current_Iis_Tx_Buffer_Count = 0;
 bool Iis_Tx_Buffer_Full_Flag[MAX_IIS_TX_BUFFER_COUNT] = {false};
-int32_t Iis_Tx_Buffer_Count[MAX_IIS_TX_BUFFER_COUNT] = {0};
+// int32_t Iis_Tx_Buffer_Count[MAX_IIS_TX_BUFFER_COUNT] = {0};
 
-std::vector<std::unique_ptr<int16_t[]>> Codec2_Encode_Buffer; // 存储从 PDM 读取的原始 PCM 数据
-std::vector<std::unique_ptr<int16_t[]>> Codec2_Decode_Buffer;
+// std::vector<std::unique_ptr<int16_t[]>> Codec2_Encode_Buffer; // 存储从 PDM 读取的原始 PCM 数据
+// std::vector<std::unique_ptr<int16_t[]>> Codec2_Decode_Buffer;
 
-std::vector<std::unique_ptr<uint8_t[]>> Codec2_Transmit_Buffer;
+// std::vector<std::unique_ptr<uint8_t[]>> Codec2_Transmit_Buffer;
+
+std::vector<uint8_t> Codec2_Transmit_Buffer;
 
 int32_t Iis_Data_Transmit_Size = 0;
 
@@ -57,6 +104,24 @@ bool Codec2_Init_Flag = false;
 size_t Cycle_Time = 0;
 
 uint32_t Iis_Tx_Buffer[MAX_IIS_TX_BUFFER_COUNT][MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
+
+uint32_t Flash_Write_Sample_16khz_Int8_t_Audio_Index = 0;
+uint32_t Flash_Read_Sample_16khz_Int8_t_Audio_Index = 0;
+
+uint32_t Flash_Write_Sample_8khz_Int8_t_Audio_Index = 0;
+uint32_t Flash_Read_Sample_8khz_Int8_t_Audio_Index = 0;
+
+bool Iis_Start_Transmit_Flag = false;
+bool Iis_Start_Transmit_Flag_Lock = true;
+
+Audio_Operating_Status Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+
+// QSPI
+Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
+                                            ZD25WQ32C_IO0, ZD25WQ32C_IO1,
+                                            ZD25WQ32C_IO2, ZD25WQ32C_IO3);
+
+Adafruit_SPIFlash flash(&flashTransport);
 
 auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
 
@@ -111,9 +176,12 @@ void Pdm_Task(void *parameter)
 
                         int32_t buffer_length = PDM.read(pcm_buffer.get(), MAX_PDM_DATA_TRANSMIT_SIZE);
 
-                        if (Pdm_Stream.size() < (MAX_PDM_DATA_TRANSMIT_SIZE * MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT))
-                        {
-                            Pdm_Stream.insert(Pdm_Stream.end(), pcm_buffer.get(), pcm_buffer.get() + buffer_length / sizeof(int16_t));
+                        if (Audio_Operation_Current_Status == Audio_Operating_Status::RECORDING)
+                         {
+                            if (Pdm_Stream.size() < (MAX_PDM_DATA_TRANSMIT_SIZE * MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT))
+                            {
+                                Pdm_Stream.insert(Pdm_Stream.end(), pcm_buffer.get(), pcm_buffer.get() + buffer_length / sizeof(int16_t));
+                            }
                         }
                     } });
 
@@ -123,21 +191,40 @@ void Pdm_Task(void *parameter)
         delay(1000);
     }
 
-    PDM.setGain(60);
+    PDM.setGain(100);
 
     while (1)
     {
-        if (Codec2_Encode_Buffer.size() < MAX_CODEC2_ENCODE_BUFFER_COUNT)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::RECORDING)
         {
-            if (Pdm_Stream.size() >= Sample_16khz_Int8_t_Size / sizeof(int16_t))
+            if (Pdm_Stream.size() >= MAX_FLASH_BUFFER_BLOCK_SIZE)
             {
-                auto pcm_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
+                uint32_t buffer_size = min(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE - Flash_Write_Sample_16khz_Int8_t_Audio_Index,
+                                           MAX_FLASH_BUFFER_BLOCK_SIZE);
 
-                memcpy(pcm_buffer.get(), Pdm_Stream.data(), Sample_16khz_Int8_t_Size);
+                if (buffer_size == 0)
+                {
+                    Serial.println("Audio_Operating_Status::RECORDING finish");
 
-                Pdm_Stream.erase(Pdm_Stream.begin(), Pdm_Stream.begin() + (Sample_16khz_Int8_t_Size / sizeof(int16_t)));
+                    Audio_Operation_Current_Status = Audio_Operating_Status::ENCODE;
+                }
+                else
+                {
+                    memcpy(Flash_Buffer->data, Pdm_Stream.data(), buffer_size);
+                    Pdm_Stream.erase(Pdm_Stream.begin(), Pdm_Stream.begin() + (buffer_size / sizeof(int16_t)));
 
-                Codec2_Encode_Buffer.push_back(std::move(pcm_buffer));
+                    if (flash.writeBuffer(Flash_Write_Sample_16khz_Int8_t_Audio_Index, Flash_Buffer->data, buffer_size) != buffer_size)
+                    {
+                        Serial.printf("flash.writeBuffer fail\n");
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    }
+
+                    Flash_Write_Sample_16khz_Int8_t_Audio_Index += buffer_size;
+
+                    Serial.printf("Audio_Operating_Status::RECORDING progress: %.01f%%\n",
+                                  (static_cast<float>(Flash_Write_Sample_16khz_Int8_t_Audio_Index) / static_cast<float>(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE)) *
+                                      100.0f);
+                }
             }
         }
 
@@ -164,39 +251,51 @@ void Codec2_Encode_Task(void *parameter)
     // 经过Codec2压缩后的数据量
     Codec2_Encode_Size = (nbit + 7) / 8;
 
-    // 在16khz CODEC2_MODE_3200下Iis_Data_Transmit_Size为160个32位数据
-    // Iis_Data_Transmit_Size = Sample_16khz_Int8_t_Size / sizeof(uint32_t);
-    // 在8khz CODEC2_MODE_3200下Iis_Data_Transmit_Size为80个32位数据
-    Iis_Data_Transmit_Size = Sample_8khz_Int8_t_Size / sizeof(uint32_t);
-
     printf("Sample_8khz_Int8_t_Size: %d\n", Sample_8khz_Int8_t_Size);
     printf("Sample_16khz_Int8_t_Size: %d\n", Sample_16khz_Int8_t_Size);
     printf("Codec2_Encode_Size: %d\n", Codec2_Encode_Size);
-    printf("Iis_Data_Transmit_Size: %d\n", Iis_Data_Transmit_Size);
 
     Codec2_Init_Flag = true;
 
     while (1)
     {
-        if (Codec2_Transmit_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::ENCODE)
         {
-            if (Codec2_Encode_Buffer.empty() == false)
+            if (Flash_Write_Sample_16khz_Int8_t_Audio_Index == MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE)
             {
-                // 降采样：从16kHz降到8kHz
-                auto downsampled_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
+                if (Flash_Write_Sample_16khz_Int8_t_Audio_Index - Flash_Read_Sample_16khz_Int8_t_Audio_Index < Sample_16khz_Int8_t_Size)
+                {
+                    Serial.println("Audio_Operating_Status::ENCODE finish");
 
-                // 调用降采样函数
-                downsample_16k_to_8k(Codec2_Encode_Buffer.front().get(), downsampled_buffer.get(), Sample_8khz_Int16_t_Size);
-                Codec2_Encode_Buffer.erase(Codec2_Encode_Buffer.begin());
+                    Audio_Operation_Current_Status = Audio_Operating_Status::DECODE;
+                }
+                else
+                {
+                    if (flash.readBuffer(Flash_Read_Sample_16khz_Int8_t_Audio_Index, Flash_Buffer->data, Sample_16khz_Int8_t_Size) != Sample_16khz_Int8_t_Size)
+                    {
+                        Serial.printf("flash.readBuffer fail\n");
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    }
 
-                auto codec2_encode_buffer = std::make_unique<uint8_t[]>(Codec2_Encode_Size);
+                    Flash_Read_Sample_16khz_Int8_t_Audio_Index += Sample_16khz_Int8_t_Size;
 
-                // 编码 (压缩) - 使用8kHz数据
-                codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
+                    Serial.printf("Audio_Operating_Status::ENCODE progress: %.01f%%\n",
+                                  (static_cast<float>(Flash_Read_Sample_16khz_Int8_t_Audio_Index) / static_cast<float>(Flash_Write_Sample_16khz_Int8_t_Audio_Index)) *
+                                      100.0f);
 
-                Codec2_Transmit_Buffer.push_back(std::move(codec2_encode_buffer));
+                    // 降采样：从16kHz降到8kHz
+                    auto downsampled_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
 
-                // Codec2_Decode_Buffer.push_back(std::move(downsampled_buffer));
+                    // 调用降采样函数
+                    downsample_16k_to_8k(reinterpret_cast<int16_t *>(Flash_Buffer->data), downsampled_buffer.get(), Sample_8khz_Int16_t_Size);
+
+                    auto codec2_encode_buffer = std::make_unique<uint8_t[]>(Codec2_Encode_Size);
+
+                    // 编码 (压缩) - 使用8kHz数据
+                    codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
+
+                    Codec2_Transmit_Buffer.insert(Codec2_Transmit_Buffer.end(), codec2_encode_buffer.get(), codec2_encode_buffer.get() + Codec2_Encode_Size);
+                }
             }
         }
 
@@ -210,15 +309,15 @@ void Codec2_Decode_Task(void *parameter)
 
     while (1)
     {
-        if (Codec2_Decode_Buffer.size() < MAX_CODEC2_DECODE_BUFFER_COUNT)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::DECODE)
         {
             if (Codec2_Transmit_Buffer.empty() == false)
             {
-                auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
+                // auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
 
                 // 解码 (还原) - 得到8kHz数据
-                codec2_decode(Codec2_Status, codec2_decode_buffer.get(), Codec2_Transmit_Buffer.front().get());
-                Codec2_Transmit_Buffer.erase(Codec2_Transmit_Buffer.begin());
+                codec2_decode(Codec2_Status, reinterpret_cast<int16_t *>(Flash_Buffer->data), Codec2_Transmit_Buffer.data());
+                Codec2_Transmit_Buffer.erase(Codec2_Transmit_Buffer.begin(), Codec2_Transmit_Buffer.begin() + Codec2_Encode_Size);
 
                 // // 升采样：从8kHz升到16kHz
                 // auto upsampled_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
@@ -229,9 +328,26 @@ void Codec2_Decode_Task(void *parameter)
 
                 // printf("codec2_encode_decode finish\n");
 
-                // Iis_Stream.insert(Iis_Stream.end(), downsampled_buffer.get(), downsampled_buffer.get() + Sample_8khz_Int16_t_Size);
-                // Iis_Stream.insert(Iis_Stream.end(), codec2_decode_buffer.get(), codec2_decode_buffer.get() + Sample_8khz_Int16_t_Size);
-                Codec2_Decode_Buffer.push_back(std::move(codec2_decode_buffer));
+                if (flash.writeBuffer(Flash_Write_Sample_8khz_Int8_t_Audio_Index, Flash_Buffer->data, Sample_8khz_Int8_t_Size) != Sample_8khz_Int8_t_Size)
+                {
+                    Serial.printf("flash.writeBuffer fail\n");
+                    Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                }
+
+                Flash_Write_Sample_8khz_Int8_t_Audio_Index += Sample_8khz_Int8_t_Size;
+
+                Serial.printf("Audio_Operating_Status::DECODE progress: %.01f%%\n",
+                              (static_cast<float>(Flash_Write_Sample_8khz_Int8_t_Audio_Index - FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET) /
+                               static_cast<float>(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE / 2)) *
+                                  100.0f);
+            }
+            else
+            {
+                Iis_Start_Transmit_Flag_Lock = false;
+
+                Serial.println("Audio_Operating_Status::DECODE finish");
+
+                Audio_Operation_Current_Status = Audio_Operating_Status::PLAY;
             }
         }
 
@@ -245,33 +361,54 @@ void Iis_Tx_Handle(void *parameter)
 
     while (1)
     {
-        if (Codec2_Decode_Buffer.empty() == false)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::PLAY)
         {
             for (uint8_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
             {
                 if (Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] == false)
                 {
-                    if (Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] < Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT)
+                    uint32_t buffer_size = min(Flash_Write_Sample_8khz_Int8_t_Audio_Index - Flash_Read_Sample_8khz_Int8_t_Audio_Index,
+                                               MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
+
+                    if (buffer_size == 0)
                     {
-                        Iis_Data_Convert(Codec2_Decode_Buffer.front().get(),
-                                         &Iis_Tx_Buffer[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT][Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]],
-                                         0, Sample_8khz_Int8_t_Size);
+                        IIS_Bus->stop_transmit();
 
-                        Serial.printf("Iis_Tx_Buffer_Count[%d]: %d\n",
-                                      (Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT, Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]);
+                        Serial.println("Audio_Operating_Status::PLAY finish");
 
-                        Codec2_Decode_Buffer.erase(Codec2_Decode_Buffer.begin());
-
-                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] += (Sample_8khz_Int8_t_Size / sizeof(uint32_t));
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
                     }
                     else
                     {
+                        if (flash.readBuffer(Flash_Read_Sample_8khz_Int8_t_Audio_Index, Flash_Buffer->data, buffer_size) != buffer_size)
+                        {
+                            Serial.printf("flash.readBuffer fail\n");
+                            Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                        }
+
+                        Flash_Read_Sample_8khz_Int8_t_Audio_Index += buffer_size;
+
+                        Serial.printf("Audio_Operating_Status::PLAY progress: %.01f%%\n",
+                                      (static_cast<float>(Flash_Read_Sample_8khz_Int8_t_Audio_Index - FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET) /
+                                       static_cast<float>(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE / 2)) *
+                                          100.0f);
+
+                        Iis_Data_Convert(Flash_Buffer->data, Iis_Tx_Buffer[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT],
+                                         0, buffer_size);
+
+                        // Serial.printf("Iis_Tx_Buffer_Count[%d] finish\n", (Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT);
+
                         Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = true;
 
-                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = 0;
-                    }
+                        if (Iis_Start_Transmit_Flag_Lock == false)
+                        {
+                            Iis_Start_Transmit_Flag = true;
 
-                    break;
+                            Iis_Start_Transmit_Flag_Lock = true;
+                        }
+
+                        break;
+                    }
                 }
             }
         }
@@ -303,60 +440,119 @@ void setup()
     digitalWrite(SPEAKER_EN, HIGH);
     pinMode(SPEAKER_EN_2, OUTPUT);
     digitalWrite(SPEAKER_EN_2, HIGH);
+
+    pinMode(nRF52840_BOOT, INPUT_PULLUP);
+
+    pinMode(KEY_1, INPUT);
+
     delay(500);
+
+    while (flash.begin(&ZD25WQ32C) == false)
+    {
+        Serial.println("Flash initialization failed");
+        delay(1000);
+    }
+    Serial.println("Flash initialization successful");
+
+    // QSPI
+    flashTransport.setClockSpeed(32000000UL, 0);
 
     IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
-    xTaskCreate(&Codec2_Encode_Task, "Codec2_Encode_Task", 15 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Pdm_Task, "Pdm_Task", 1 * 1024, NULL, 3, NULL);
 
-    while (1)
-    {
-        if (Codec2_Init_Flag == true)
-        {
-            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT) == true)
-            {
-                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
-                Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
-                printf("start_transmit success\n");
-            }
-            else
-            {
-                printf("start_transmit fail\n");
-            }
-
-            break;
-        }
-    }
-
-    xTaskCreate(&Codec2_Decode_Task, "Codec2_Decode_Task", 15 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Codec2_Encode_Task, "Codec2_Encode_Task", 10 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Codec2_Decode_Task, "Codec2_Decode_Task", 10 * 1024, NULL, 3, NULL);
 
     xTaskCreate(&Iis_Tx_Handle, "Iis_Tx_Handle", 1 * 1024, NULL, 5, NULL);
-
-    xTaskCreate(&Pdm_Task, "Pdm_Task", 1 * 1024, NULL, 3, NULL);
 }
 
 void loop()
 {
-    if (IIS_Bus->get_write_event_flag() == true)
+    if (digitalRead(nRF52840_BOOT) == LOW && Audio_Operation_Current_Status == Audio_Operating_Status::IDLE)
     {
-        if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == true)
-        {
-            IIS_Bus->set_next_write_data(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count]);
-            Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+        delay(300);
 
-            Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
+        Serial.println("audio operating start");
+
+        flash.eraseChip();
+        flash.waitUntilReady();
+
+        Pdm_Stream.clear();
+
+        Flash_Write_Sample_16khz_Int8_t_Audio_Index = 0;
+        Flash_Read_Sample_16khz_Int8_t_Audio_Index = 0;
+
+        Codec2_Transmit_Buffer.clear();
+
+        Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+        Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+
+        for (size_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
+        {
+            Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = false;
+        }
+
+        Audio_Operation_Current_Status = Audio_Operating_Status::RECORDING;
+    }
+
+    if (digitalRead(KEY_1) == LOW && Audio_Operation_Current_Status == Audio_Operating_Status::IDLE)
+    {
+        delay(300);
+
+        Serial.println("audio replay start");
+
+        Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+
+        for (size_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
+        {
+            Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = false;
+        }
+
+        Iis_Start_Transmit_Flag_Lock = false;
+
+        Audio_Operation_Current_Status = Audio_Operating_Status::PLAY;
+    }
+
+    if (Audio_Operation_Current_Status == Audio_Operating_Status::PLAY)
+    {
+        if (Iis_Start_Transmit_Flag == true)
+        {
+            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
+            {
+                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+                Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
+                printf("iis start_transmit success\n");
+            }
+            else
+            {
+                printf("iis start_transmit fail\n");
+
+                Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+            }
+
+            Iis_Start_Transmit_Flag = false;
+        }
+
+        if (IIS_Bus->get_write_event_flag() == true)
+        {
+            if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == true)
+            {
+                IIS_Bus->set_next_write_data(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count]);
+                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+
+                Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
+            }
         }
     }
 
     if (millis() > Cycle_Time)
     {
         printf("Pdm_Stream size: %d\n", Pdm_Stream.size());
-        printf("Codec2_Encode_Buffer: %d\n", Codec2_Encode_Buffer.size());
-        printf("Codec2_Transmit_Buffer: %d\n", Codec2_Transmit_Buffer.size());
-        printf("Codec2_Decode_Buffer: %d\n", Codec2_Decode_Buffer.size());
         printf("Iis_Tx_Buffer: %d\n", static_cast<int16_t>(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count][0] >> 16));
+        printf("Audio_Operation_Current_Status: %d\n", Audio_Operation_Current_Status);
 
-        Cycle_Time = millis() + 500;
+        Cycle_Time = millis() + 1000;
     }
 
     delay(10);
