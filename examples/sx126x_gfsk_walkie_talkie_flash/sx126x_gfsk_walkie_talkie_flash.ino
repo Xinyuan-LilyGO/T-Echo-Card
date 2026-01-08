@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-08 17:20:15
+ * @LastEditTime: 2026-01-08 17:43:37
  * @License: GPL 3.0
  */
 
@@ -690,7 +690,7 @@ void Sx1262_Task(void *parameter)
                     }
 
                     // 大数据传输保证传输稳定
-                    delay(50);
+                    delay(100);
                 }
             }
         }
@@ -824,8 +824,10 @@ void Sx1262_Task(void *parameter)
                                 printf("Audio_Operating_Status::SX1262_RECEIVE finish\n");
                                 printf("total receive bytes size: %d\n", Codec2_Receive_Buffer_Size);
 
-                                // flash.eraseChip();
-                                // flash.waitUntilReady();
+                                flash.eraseChip();
+                                flash.waitUntilReady();
+                                printf("Waiting for flash to erase\n");
+                                delay(MAX_RECORD_AUDIO_TIME_SECONDS * 1000);
 
                                 Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
                                 Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
@@ -857,8 +859,10 @@ void Sx1262_Task(void *parameter)
                     printf("missing receive bytes size: %d\n", last_receive_total_size - Codec2_Receive_Buffer_Size);
                     printf("total receive bytes size: %d\n", Codec2_Receive_Buffer_Size);
 
-                    // flash.eraseChip();
-                    // flash.waitUntilReady();
+                    flash.eraseChip();
+                    flash.waitUntilReady();
+                    printf("Waiting for flash to erase\n");
+                    delay(MAX_RECORD_AUDIO_TIME_SECONDS * 1000);
 
                     Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
                     Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
@@ -925,9 +929,6 @@ void setup()
 
     // QSPI
     flashTransport.setClockSpeed(32000000UL, 0);
-
-    flash.eraseChip();
-    flash.waitUntilReady();
 
     IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
