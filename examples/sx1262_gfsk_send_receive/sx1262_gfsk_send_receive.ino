@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-01-05 11:55:57
- * @LastEditTime: 2026-01-05 17:28:39
+ * @LastEditTime: 2026-01-08 17:48:11
  * @License: GPL 3.0
  */
 
@@ -17,7 +17,27 @@ enum class Sx1262_Rf_Switch_Status
 
 uint8_t Receive_Package[255] = {0};
 
-uint8_t Send_Package[9] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+uint8_t Send_Package[] = {
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 
 size_t Cycle_Time = 0;
 
@@ -138,6 +158,8 @@ void loop()
 
     if (digitalRead(nRF52840_BOOT) == 0)
     {
+        delay(1000);
+
         // 设置发送模式，发送完成后进入快速切换模式（FS模式）
         Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::TX, 0, Cpp_Bus_Driver::Sx126x::Fallback_Mode::FS);
         Sx1262->set_irq_pin_mode(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TX_DONE,
@@ -184,6 +206,9 @@ void loop()
         {
             printf("Sx1262 send fail\n");
         }
+
+        // 大数据传输保证传输稳定
+        delay(100);
 
         Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
 
@@ -270,13 +295,15 @@ void loop()
                             {
                                 printf("get Sx1262 data[%d]: %d\n", i, Receive_Package[i]);
                             }
+
+                            // 接收完成中断清除需要成功接收到数据后才能清除
+                            // 不能放在其他接收到错误数据的位置上
+                            Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
                         }
                     }
                 }
             }
         }
-
-        Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
     }
 
     delay(10);
