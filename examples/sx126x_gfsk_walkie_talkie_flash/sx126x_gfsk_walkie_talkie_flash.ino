@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-06 15:53:42
+ * @LastEditTime: 2026-01-08 17:20:15
  * @License: GPL 3.0
  */
 
@@ -15,30 +15,80 @@
 #include "codec2.h"
 #include <vector>
 #include <malloc.h>
+#include "Adafruit_SPIFlash.h"
+#include <sstream>
 
 #define PDM_SAMPLE_RATE 16000
 #define IIS_SAMPLE_RATE 8000
 
-#define MAX_IIS_DATA_TRANSMIT_COUNT 10
-#define MAX_IIS_DATA_TRANSMIT_SIZE 80 * MAX_IIS_DATA_TRANSMIT_COUNT
+#define MAX_IIS_DATA_TRANSMIT_SIZE 1024
 
-#define MAX_IIS_TX_BUFFER_COUNT 3
+#define MAX_IIS_TX_BUFFER_COUNT 2
 
 #define MAX_PDM_DATA_TRANSMIT_SIZE 512
-#define MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT 3
+#define MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT 16
 
 #define MAX_CODEC2_ENCODE_BUFFER_COUNT 3
 #define MAX_CODEC2_DECODE_BUFFER_COUNT 10
 
-#define MAX_CODEC2_TRANSMIT_BUFFER_COUNT 5
+#define MAX_CODEC2_TRANSMIT_BUFFER_COUNT 30
 
-#define MAX_SX126X_TRANSMIT_BUFFER_SIZE 200
+#define MAX_RECORD_AUDIO_TIME_SECONDS 5
+
+#define MAX_FLASH_BUFFER_BLOCK_SIZE 4 * 1024
+
+#define MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE (PDM_SAMPLE_RATE * 16 * 1 * MAX_RECORD_AUDIO_TIME_SECONDS) / 8
+
+#define FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE
+
+#define MAX_SX126X_TRANSMIT_HEADER_SIZE 30
+#define MAX_SX126X_TRANSMIT_DATA_SIZE 170
+#define MAX_SX126X_TRANSMIT_SIZE MAX_SX126X_TRANSMIT_HEADER_SIZE + MAX_SX126X_TRANSMIT_DATA_SIZE
+
+enum class Audio_Operating_Status
+{
+    IDLE,
+    RECORDING,
+    ENCODE,
+    DECODE,
+    PLAY,
+    SX1262_SEND,
+    SX1262_RECEIVE,
+};
 
 enum class Sx1262_Rf_Switch_Status
 {
     SEND,
     RECEIVE,
 };
+
+SPIFlash_Device_t ZD25WQ32C =
+    {
+        total_size : (1UL << 22), /* 4 MiB */
+        start_up_time_us : 12000,
+        manufacturer_id : 0xBA,
+        memory_type : 0x60,
+        capacity : 0x16,
+        max_clock_speed_mhz : 104,
+        quad_enable_bit_mask : 0x02,
+        has_sector_protection : false,
+        supports_fast_read : true,
+        supports_qspi : true,
+        supports_qspi_writes : true,
+        write_status_register_split : false,
+        single_status_byte : false,
+        is_fram : false,
+    };
+
+struct Flash_Buffer_Struct
+{
+    alignas(4) uint8_t data[MAX_FLASH_BUFFER_BLOCK_SIZE];
+};
+
+// 4 byte aligned buffer has best result with nRF QSPI
+// uint8_t Flash_Buffer_Write[MAX_FLASH_BUFFER_BLOCK_SIZE] __attribute__((aligned(4)));
+// uint8_t Flash_Buffer_Read[MAX_FLASH_BUFFER_BLOCK_SIZE] __attribute__((aligned(4)));
+auto Flash_Buffer = std::make_unique<Flash_Buffer_Struct>();
 
 CODEC2 *Codec2_Status;
 
@@ -51,15 +101,17 @@ int32_t Codec2_Encode_Size;
 
 uint8_t Current_Iis_Tx_Buffer_Count = 0;
 bool Iis_Tx_Buffer_Full_Flag[MAX_IIS_TX_BUFFER_COUNT] = {false};
-int32_t Iis_Tx_Buffer_Count[MAX_IIS_TX_BUFFER_COUNT] = {0};
+// int32_t Iis_Tx_Buffer_Count[MAX_IIS_TX_BUFFER_COUNT] = {0};
 
-bool Sx1262_Send_Flag = false;
+// std::vector<std::unique_ptr<int16_t[]>> Codec2_Encode_Buffer; // 存储从 PDM 读取的原始 PCM 数据
+// std::vector<std::unique_ptr<int16_t[]>> Codec2_Decode_Buffer;
 
-std::vector<std::unique_ptr<int16_t[]>> Codec2_Encode_Buffer; // 存储从 PDM 读取的原始 PCM 数据
-std::vector<std::unique_ptr<int16_t[]>> Codec2_Decode_Buffer;
+// std::vector<std::unique_ptr<uint8_t[]>> Codec2_Transmit_Buffer;
 
 std::vector<uint8_t> Codec2_Send_Buffer;
 std::vector<uint8_t> Codec2_Receive_Buffer;
+
+uint32_t Codec2_Receive_Buffer_Size = 0;
 
 int32_t Iis_Data_Transmit_Size = 0;
 
@@ -69,8 +121,33 @@ size_t Cycle_Time = 0;
 
 uint32_t Iis_Tx_Buffer[MAX_IIS_TX_BUFFER_COUNT][MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
 
-auto SPI_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Spi>(SX1262_MOSI, SX1262_SCLK, SX1262_MISO, NRF_SPIM3, 0);
+uint32_t Flash_Write_Sample_16khz_Int8_t_Audio_Index = 0;
+uint32_t Flash_Read_Sample_16khz_Int8_t_Audio_Index = 0;
+
+uint32_t Flash_Write_Sample_8khz_Int8_t_Audio_Index = 0;
+uint32_t Flash_Read_Sample_8khz_Int8_t_Audio_Index = 0;
+
+bool Iis_Start_Transmit_Flag = false;
+bool Iis_Start_Transmit_Flag_Lock = true;
+
+bool Sx1262_Send_Flag = false;
+
+uint32_t Codec2_Send_Buffer_Size = 0;
+
+bool Flash_Sample_8khz_Int8_t_Audio_Exist_Flag = false;
+
+Audio_Operating_Status Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+
+// QSPI
+Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
+                                            ZD25WQ32C_IO0, ZD25WQ32C_IO1,
+                                            ZD25WQ32C_IO2, ZD25WQ32C_IO3);
+
+Adafruit_SPIFlash flash(&flashTransport);
+
 auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+
+auto SPI_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Spi>(SX1262_MOSI, SX1262_SCLK, SX1262_MISO, NRF_SPIM3, 0);
 
 auto Sx1262 = std::make_unique<Cpp_Bus_Driver::Sx126x>(SPI_Bus, Cpp_Bus_Driver::Sx126x::Chip_Type::SX1262, SX1262_BUSY, SX1262_CS, SX1262_RST);
 
@@ -143,8 +220,8 @@ void Pdm_Task(void *parameter)
 
                         int32_t buffer_length = PDM.read(pcm_buffer.get(), MAX_PDM_DATA_TRANSMIT_SIZE);
 
-                        if (Sx1262_Send_Flag == true)
-                        {
+                        if (Audio_Operation_Current_Status == Audio_Operating_Status::RECORDING)
+                         {
                             if (Pdm_Stream.size() < (MAX_PDM_DATA_TRANSMIT_SIZE * MAX_PDM_DATA_TRANSMIT_BLOCK_COUNT))
                             {
                                 Pdm_Stream.insert(Pdm_Stream.end(), pcm_buffer.get(), pcm_buffer.get() + buffer_length / sizeof(int16_t));
@@ -158,23 +235,41 @@ void Pdm_Task(void *parameter)
         delay(1000);
     }
 
-    PDM.setGain(60);
+    PDM.setGain(100);
 
     while (1)
     {
-        if (Sx1262_Send_Flag == true)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::RECORDING)
         {
-            if (Codec2_Encode_Buffer.size() < MAX_CODEC2_ENCODE_BUFFER_COUNT)
+            if (Pdm_Stream.size() >= MAX_FLASH_BUFFER_BLOCK_SIZE)
             {
-                if (Pdm_Stream.size() >= Sample_16khz_Int8_t_Size / sizeof(int16_t))
+                uint32_t buffer_size = min(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE - Flash_Write_Sample_16khz_Int8_t_Audio_Index,
+                                           MAX_FLASH_BUFFER_BLOCK_SIZE);
+
+                if (buffer_size == 0)
                 {
-                    auto pcm_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
+                    Serial.println("Audio_Operating_Status::RECORDING finish");
 
-                    memcpy(pcm_buffer.get(), Pdm_Stream.data(), Sample_16khz_Int8_t_Size);
+                    Codec2_Send_Buffer.clear();
 
-                    Pdm_Stream.erase(Pdm_Stream.begin(), Pdm_Stream.begin() + (Sample_16khz_Int8_t_Size / sizeof(int16_t)));
+                    Audio_Operation_Current_Status = Audio_Operating_Status::ENCODE;
+                }
+                else
+                {
+                    memcpy(Flash_Buffer->data, Pdm_Stream.data(), buffer_size);
+                    Pdm_Stream.erase(Pdm_Stream.begin(), Pdm_Stream.begin() + (buffer_size / sizeof(int16_t)));
 
-                    Codec2_Encode_Buffer.push_back(std::move(pcm_buffer));
+                    if (flash.writeBuffer(Flash_Write_Sample_16khz_Int8_t_Audio_Index, Flash_Buffer->data, buffer_size) != buffer_size)
+                    {
+                        Serial.printf("flash.writeBuffer fail\n");
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    }
+
+                    Flash_Write_Sample_16khz_Int8_t_Audio_Index += buffer_size;
+
+                    Serial.printf("Audio_Operating_Status::RECORDING progress: %.01f%%\n",
+                                  (static_cast<float>(Flash_Write_Sample_16khz_Int8_t_Audio_Index) / static_cast<float>(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE)) *
+                                      100.0f);
                 }
             }
         }
@@ -202,32 +297,45 @@ void Codec2_Encode_Task(void *parameter)
     // 经过Codec2压缩后的数据量
     Codec2_Encode_Size = (nbit + 7) / 8;
 
-    // 在16khz CODEC2_MODE_3200下Iis_Data_Transmit_Size为160个32位数据
-    // Iis_Data_Transmit_Size = Sample_16khz_Int8_t_Size / sizeof(uint32_t);
-    // 在8khz CODEC2_MODE_3200下Iis_Data_Transmit_Size为80个32位数据
-    Iis_Data_Transmit_Size = Sample_8khz_Int8_t_Size / sizeof(uint32_t);
-
     printf("Sample_8khz_Int8_t_Size: %d\n", Sample_8khz_Int8_t_Size);
     printf("Sample_16khz_Int8_t_Size: %d\n", Sample_16khz_Int8_t_Size);
     printf("Codec2_Encode_Size: %d\n", Codec2_Encode_Size);
-    printf("Iis_Data_Transmit_Size: %d\n", Iis_Data_Transmit_Size);
 
     Codec2_Init_Flag = true;
 
     while (1)
     {
-        if (Sx1262_Send_Flag == true)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::ENCODE)
         {
-            if (Codec2_Send_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_BUFFER_SIZE)
+            if (Flash_Write_Sample_16khz_Int8_t_Audio_Index == MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE)
             {
-                if (Codec2_Encode_Buffer.empty() == false)
+                if (Flash_Write_Sample_16khz_Int8_t_Audio_Index - Flash_Read_Sample_16khz_Int8_t_Audio_Index < Sample_16khz_Int8_t_Size)
                 {
+                    Serial.println("Audio_Operating_Status::ENCODE finish");
+
+                    Codec2_Send_Buffer_Size = Codec2_Send_Buffer.size();
+
+                    Audio_Operation_Current_Status = Audio_Operating_Status::SX1262_SEND;
+                }
+                else
+                {
+                    if (flash.readBuffer(Flash_Read_Sample_16khz_Int8_t_Audio_Index, Flash_Buffer->data, Sample_16khz_Int8_t_Size) != Sample_16khz_Int8_t_Size)
+                    {
+                        Serial.printf("flash.readBuffer fail\n");
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    }
+
+                    Flash_Read_Sample_16khz_Int8_t_Audio_Index += Sample_16khz_Int8_t_Size;
+
+                    Serial.printf("Audio_Operating_Status::ENCODE progress: %.01f%%\n",
+                                  (static_cast<float>(Flash_Read_Sample_16khz_Int8_t_Audio_Index) / static_cast<float>(Flash_Write_Sample_16khz_Int8_t_Audio_Index)) *
+                                      100.0f);
+
                     // 降采样：从16kHz降到8kHz
                     auto downsampled_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
 
                     // 调用降采样函数
-                    downsample_16k_to_8k(Codec2_Encode_Buffer.front().get(), downsampled_buffer.get(), Sample_8khz_Int16_t_Size);
-                    Codec2_Encode_Buffer.erase(Codec2_Encode_Buffer.begin());
+                    downsample_16k_to_8k(reinterpret_cast<int16_t *>(Flash_Buffer->data), downsampled_buffer.get(), Sample_8khz_Int16_t_Size);
 
                     auto codec2_encode_buffer = std::make_unique<uint8_t[]>(Codec2_Encode_Size);
 
@@ -235,8 +343,6 @@ void Codec2_Encode_Task(void *parameter)
                     codec2_encode(Codec2_Status, codec2_encode_buffer.get(), downsampled_buffer.get());
 
                     Codec2_Send_Buffer.insert(Codec2_Send_Buffer.end(), codec2_encode_buffer.get(), codec2_encode_buffer.get() + Codec2_Encode_Size);
-
-                    // Codec2_Decode_Buffer.push_back(std::move(downsampled_buffer));
                 }
             }
         }
@@ -251,28 +357,57 @@ void Codec2_Decode_Task(void *parameter)
 
     while (1)
     {
-        if (Codec2_Decode_Buffer.size() < MAX_CODEC2_DECODE_BUFFER_COUNT)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::DECODE)
         {
-            if (Codec2_Receive_Buffer.size() >= Codec2_Encode_Size)
+            if (Codec2_Receive_Buffer.empty() == false)
             {
-                auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
+                if (Codec2_Receive_Buffer.size() / Codec2_Encode_Size > 0)
+                {
+                    // auto codec2_decode_buffer = std::make_unique<int16_t[]>(Sample_8khz_Int16_t_Size);
 
-                // 解码 (还原) - 得到8kHz数据
-                codec2_decode(Codec2_Status, codec2_decode_buffer.get(), Codec2_Receive_Buffer.data());
-                Codec2_Receive_Buffer.erase(Codec2_Receive_Buffer.begin(), Codec2_Receive_Buffer.begin() + Codec2_Encode_Size);
+                    // 解码 (还原) - 得到8kHz数据
+                    codec2_decode(Codec2_Status, reinterpret_cast<int16_t *>(Flash_Buffer->data), Codec2_Receive_Buffer.data());
+                    Codec2_Receive_Buffer.erase(Codec2_Receive_Buffer.begin(), Codec2_Receive_Buffer.begin() + Codec2_Encode_Size);
 
-                // // 升采样：从8kHz升到16kHz
-                // auto upsampled_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
+                    Serial.printf("Audio_Operating_Status::DECODE progress: %.01f%%\n",
+                                  (static_cast<float>(Codec2_Receive_Buffer_Size - Codec2_Receive_Buffer.size()) / static_cast<float>(Codec2_Receive_Buffer_Size)) * 100.0f);
 
-                // 调用升采样函数
-                // upsample_8k_to_16k(codec2_decode_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
-                // upsample_8k_to_16k(downsampled_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
+                    // // 升采样：从8kHz升到16kHz
+                    // auto upsampled_buffer = std::make_unique<int16_t[]>(Sample_16khz_Int8_t_Size / sizeof(int16_t));
 
-                // printf("codec2_encode_decode finish\n");
+                    // 调用升采样函数
+                    // upsample_8k_to_16k(codec2_decode_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
+                    // upsample_8k_to_16k(downsampled_buffer.get(), upsampled_buffer.get(), Sample_8khz_Int16_t_Size);
 
-                // Iis_Stream.insert(Iis_Stream.end(), downsampled_buffer.get(), downsampled_buffer.get() + Sample_8khz_Int16_t_Size);
-                // Iis_Stream.insert(Iis_Stream.end(), codec2_decode_buffer.get(), codec2_decode_buffer.get() + Sample_8khz_Int16_t_Size);
-                Codec2_Decode_Buffer.push_back(std::move(codec2_decode_buffer));
+                    // printf("codec2_encode_decode finish\n");
+
+                    if (flash.writeBuffer(Flash_Write_Sample_8khz_Int8_t_Audio_Index, Flash_Buffer->data, Sample_8khz_Int8_t_Size) != Sample_8khz_Int8_t_Size)
+                    {
+                        Serial.printf("flash.writeBuffer fail\n");
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    }
+
+                    Flash_Write_Sample_8khz_Int8_t_Audio_Index += Sample_8khz_Int8_t_Size;
+                }
+                else
+                {
+                    Codec2_Receive_Buffer.clear();
+                }
+            }
+            else
+            {
+                Iis_Start_Transmit_Flag_Lock = false;
+
+                for (size_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
+                {
+                    Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = false;
+                }
+
+                Serial.println("Audio_Operating_Status::DECODE finish");
+
+                Flash_Sample_8khz_Int8_t_Audio_Exist_Flag = true;
+
+                Audio_Operation_Current_Status = Audio_Operating_Status::PLAY;
             }
         }
 
@@ -286,39 +421,158 @@ void Iis_Tx_Handle(void *parameter)
 
     while (1)
     {
-        if (Codec2_Decode_Buffer.empty() == false)
+        if (Audio_Operation_Current_Status == Audio_Operating_Status::PLAY)
         {
             for (uint8_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
             {
                 if (Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] == false)
                 {
-                    if (Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] < Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT)
+                    uint32_t buffer_size = min(Flash_Write_Sample_8khz_Int8_t_Audio_Index - Flash_Read_Sample_8khz_Int8_t_Audio_Index,
+                                               MAX_IIS_DATA_TRANSMIT_SIZE * sizeof(uint32_t));
+
+                    if (buffer_size == 0)
                     {
-                        Iis_Data_Convert(Codec2_Decode_Buffer.front().get(),
-                                         &Iis_Tx_Buffer[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT][Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]],
-                                         0, Sample_8khz_Int8_t_Size);
+                        IIS_Bus->stop_transmit();
 
-                        Serial.printf("Iis_Tx_Buffer_Count[%d]: %d\n",
-                                      (Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT, Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT]);
+                        Serial.println("Audio_Operating_Status::PLAY finish");
 
-                        Codec2_Decode_Buffer.erase(Codec2_Decode_Buffer.begin());
-
-                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] += (Sample_8khz_Int8_t_Size / sizeof(uint32_t));
+                        Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
                     }
                     else
                     {
+                        if (flash.readBuffer(Flash_Read_Sample_8khz_Int8_t_Audio_Index, Flash_Buffer->data, buffer_size) != buffer_size)
+                        {
+                            Serial.printf("flash.readBuffer fail\n");
+                            Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                        }
+
+                        Flash_Read_Sample_8khz_Int8_t_Audio_Index += buffer_size;
+
+                        Serial.printf("Audio_Operating_Status::PLAY progress: %.01f%%\n",
+                                      (static_cast<float>(Flash_Read_Sample_8khz_Int8_t_Audio_Index - FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET) /
+                                       static_cast<float>(MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE / 2)) *
+                                          100.0f);
+
+                        Iis_Data_Convert(Flash_Buffer->data, Iis_Tx_Buffer[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT],
+                                         0, buffer_size);
+
+                        // Serial.printf("Iis_Tx_Buffer_Count[%d] finish\n", (Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT);
+
                         Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = true;
 
-                        Iis_Tx_Buffer_Count[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = 0;
-                    }
+                        if (Iis_Start_Transmit_Flag_Lock == false)
+                        {
+                            Iis_Start_Transmit_Flag = true;
 
-                    break;
+                            Iis_Start_Transmit_Flag_Lock = true;
+                        }
+
+                        break;
+                    }
                 }
             }
         }
 
         delay(10);
     }
+}
+
+bool Sx126x_Gfsk_Receive(uint8_t *data, uint32_t *length)
+{
+    if (digitalRead(SX1262_INT) == 1) // 接收完成中断
+    {
+        // 检查中断
+        Cpp_Bus_Driver::Sx126x::Irq_Status is;
+        // 判断中断正确性
+        if (Sx1262->parse_irq_status(Sx1262->get_irq_flag(), is) == false)
+        {
+            printf("parse_irq_status fail\n");
+            return false;
+        }
+        else
+        {
+            if (is.all_flag.tx_rx_timeout == true)
+            {
+                printf("receive timeout\n");
+                Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TIMEOUT);
+                return false;
+            }
+            else if (is.all_flag.crc_error == true)
+            {
+                printf("receive crc error\n");
+                Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::CRC_ERROR);
+                return false;
+            }
+            else
+            {
+                // 判断传输包正确性
+                Cpp_Bus_Driver::Sx126x::Gfsk_Packet_Status gps;
+                uint32_t packet_buffer = Sx1262->get_gfsk_packet_status();
+                if (Sx1262->parse_gfsk_packet_status(packet_buffer, gps) == false)
+                {
+                    printf("parse_gfsk_packet_status fail\n");
+                    return false;
+                }
+                else
+                {
+                    if (gps.abort_error_flag == true) // 中止错误
+                    {
+                        printf("receive abort_error_flag error\n");
+                        return false;
+                    }
+                    else if (gps.length_error_flag == true) // 长度错误
+                    {
+                        printf("receive length_error_flag error\n");
+                        return false;
+                    }
+                    else if (gps.crc_error_flag == true) // CRC校验错误
+                    {
+                        printf("receive crc_error_flag error\n");
+                        return false;
+                    }
+                    else if (gps.address_error_flag == true) // 地址错误
+                    {
+                        printf("receive address_error_flag error\n");
+                        return false;
+                    }
+                    else if (gps.sync_word_flag == true) // 同步错误
+                    {
+                        printf("receive sync_word_flag error\n");
+                        return false;
+                    }
+                    else if (gps.preamble_error_flag == true) // 前导错误
+                    {
+                        printf("receive preamble_error_flag error\n");
+                        return false;
+                    }
+                    else
+                    {
+                        uint8_t length_buffer = Sx1262->receive_data(data);
+                        if (length_buffer == 0)
+                        {
+                            printf("Sx1262 receive fail (error assert: %d)\n", Sx1262->_assert);
+                            return false;
+                        }
+
+                        Cpp_Bus_Driver::Sx126x::Packet_Metrics pm;
+                        Sx1262->parse_gfsk_packet_metrics(packet_buffer, pm);
+
+                        printf("Sx1262 receive rssi_average: %.01f rssi_sync: %.01f\n", pm.gfsk.rssi_average, pm.gfsk.rssi_sync);
+
+                        *length = length_buffer;
+
+                        // 接收完成中断清除需要成功接收到数据后才能清除
+                        // 不能放在其他接收到错误数据的位置上
+                        Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
+
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 void Sx1262_Task(void *parameter)
@@ -337,162 +591,290 @@ void Sx1262_Task(void *parameter)
                              Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE);
     Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
 
+    auto codec2_receive_buffer = std::make_unique<uint8_t[]>(MAX_SX126X_TRANSMIT_SIZE);
+    uint32_t codec2_receive_buffer_size;
+    uint32_t receive_packet_id = 0;
+    uint32_t last_receive_total_size = 0;
+
     while (1)
     {
-        if (Sx1262_Send_Flag == true)
+        switch (Audio_Operation_Current_Status)
         {
-            if (Codec2_Send_Buffer.size() >= MAX_SX126X_TRANSMIT_BUFFER_SIZE)
-            {
-                // 设置发送模式，发送完成后进入快速切换模式（FS模式）
-                Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::TX, 0, Cpp_Bus_Driver::Sx126x::Fallback_Mode::FS);
-                Sx1262->set_irq_pin_mode(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TX_DONE,
-                                         Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE,
-                                         Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE);
-                Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TX_DONE);
+        case Audio_Operating_Status::SX1262_SEND:
+        {
 
+            uint32_t packet_id = 0;
+            char header[MAX_SX126X_TRANSMIT_HEADER_SIZE];
+
+            std::unique_ptr<uint8_t[]> packet = std::make_unique<uint8_t[]>(MAX_SX126X_TRANSMIT_SIZE);
+
+            Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::SEND);
+
+            while (1)
+            {
                 printf("Sx1262 send start\n");
-                uint16_t timeout_count = 0;
-                Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::SEND);
-                if (Sx1262->send_data(Codec2_Send_Buffer.data(), MAX_SX126X_TRANSMIT_BUFFER_SIZE) == true)
+
+                uint32_t data_size = min(Codec2_Send_Buffer.size(), MAX_SX126X_TRANSMIT_DATA_SIZE);
+
+                if (data_size == 0)
                 {
-                    Codec2_Send_Buffer.erase(Codec2_Send_Buffer.begin(), Codec2_Send_Buffer.begin() + MAX_SX126X_TRANSMIT_BUFFER_SIZE);
+                    printf("Audio_Operating_Status::SX1262_SEND finish\n");
 
-                    while (1) // 等待发送完成
-                    {
-                        if (digitalRead(SX1262_INT) == 1) // 发送完成标志
-                        {
-                            // 检查标志
-                            Cpp_Bus_Driver::Sx126x::Irq_Status is;
-                            if (Sx1262->parse_irq_status(Sx1262->get_irq_flag(), is) == false)
-                            {
-                                printf("parse_irq_status fail\n");
-                            }
-                            else
-                            {
-                                if (is.all_flag.tx_done == true) // 发送完成
-                                {
-                                    printf("Sx1262 send success\n");
-                                    break;
-                                }
-                            }
-                        }
+                    Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
 
-                        timeout_count++;
-                        if (timeout_count > 500) // 超时
-                        {
-                            printf("Sx1262 send timeout\n");
-                            break;
-                        }
+                    // 还原接收模式
+                    Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::RX);
+                    Sx1262->set_irq_pin_mode(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE,
+                                             Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE,
+                                             Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE);
+                    Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
 
-                        delay(10);
-                    }
+                    Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
+                    break;
                 }
                 else
                 {
-                    printf("Sx1262 send fail\n");
-                }
+                    uint16_t timeout_count = 0;
 
-                Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
+                    // CODEC2_TRANSMIT:packetId:totalSize:
+                    uint32_t header_len = snprintf(header, sizeof(header),
+                                                   "CODEC2_TRANSMIT:%lu:%lu:", packet_id, Codec2_Send_Buffer_Size);
 
-                // 还原接收模式
-                Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::RX);
-                Sx1262->set_irq_pin_mode(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE,
-                                         Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE,
-                                         Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE);
-                Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
-            }
-        }
-        else
-        {
-            if (digitalRead(SX1262_INT) == 1) // 接收完成中断
-            {
-                // 检查中断
-                Cpp_Bus_Driver::Sx126x::Irq_Status is;
-                // 判断中断正确性
-                if (Sx1262->parse_irq_status(Sx1262->get_irq_flag(), is) == false)
-                {
-                    printf("parse_irq_status fail\n");
-                }
-                else
-                {
-                    if (is.all_flag.tx_rx_timeout == true)
+                    memcpy(packet.get(), header, header_len);
+                    memcpy(packet.get() + header_len, Codec2_Send_Buffer.data(), data_size);
+
+                    // 设置发送模式，发送完成后进入快速切换模式（FS模式）
+                    Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::TX, 0, Cpp_Bus_Driver::Sx126x::Fallback_Mode::FS);
+                    Sx1262->set_irq_pin_mode(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TX_DONE,
+                                             Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE,
+                                             Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::DISABLE);
+                    Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TX_DONE);
+
+                    if (Sx1262->send_data(packet.get(), data_size + header_len) == true)
                     {
-                        printf("receive timeout\n");
-                        Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::TIMEOUT);
-                    }
-                    else if (is.all_flag.crc_error == true)
-                    {
-                        printf("receive crc error\n");
-                        Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::CRC_ERROR);
-                    }
-                    else
-                    {
-                        // 判断传输包正确性
-                        Cpp_Bus_Driver::Sx126x::Gfsk_Packet_Status gps;
-                        uint32_t packet_buffer = Sx1262->get_gfsk_packet_status();
-                        if (Sx1262->parse_gfsk_packet_status(packet_buffer, gps) == false)
+                        while (1) // 等待发送完成
                         {
-                            printf("parse_gfsk_packet_status fail\n");
-                        }
-                        else
-                        {
-                            if (gps.abort_error_flag == true) // 中止错误
+                            if (digitalRead(SX1262_INT) == 1) // 发送完成标志
                             {
-                                printf("receive abort_error_flag error\n");
-                            }
-                            else if (gps.length_error_flag == true) // 长度错误
-                            {
-                                printf("receive length_error_flag error\n");
-                            }
-                            else if (gps.crc_error_flag == true) // CRC校验错误
-                            {
-                                printf("receive crc_error_flag error\n");
-                            }
-                            else if (gps.address_error_flag == true) // 地址错误
-                            {
-                                printf("receive address_error_flag error\n");
-                            }
-                            else if (gps.sync_word_flag == true) // 同步错误
-                            {
-                                printf("receive sync_word_flag error\n");
-                            }
-                            else if (gps.preamble_error_flag == true) // 前导错误
-                            {
-                                printf("receive preamble_error_flag error\n");
-                            }
-                            else
-                            {
-                                auto codec2_receive_buffer = std::make_unique<uint8_t[]>(MAX_SX126X_TRANSMIT_BUFFER_SIZE);
-
-                                uint8_t length_buffer = Sx1262->receive_data(codec2_receive_buffer.get(), MAX_SX126X_TRANSMIT_BUFFER_SIZE);
-                                if (length_buffer == 0)
+                                // 检查标志
+                                Cpp_Bus_Driver::Sx126x::Irq_Status is;
+                                if (Sx1262->parse_irq_status(Sx1262->get_irq_flag(), is) == false)
                                 {
-                                    printf("Sx1262 receive fail (error assert: %d)\n", Sx1262->_assert);
+                                    printf("parse_irq_status fail\n");
                                 }
                                 else
                                 {
-                                    Cpp_Bus_Driver::Sx126x::Packet_Metrics pm;
-                                    Sx1262->parse_gfsk_packet_metrics(packet_buffer, pm);
-
-                                    printf("Sx1262 receive rssi_average: %.01f rssi_sync: %.01f\n", pm.gfsk.rssi_average, pm.gfsk.rssi_sync);
-
-                                    // for (uint8_t i = 0; i < length_buffer; i++)
-                                    // {
-                                    //     printf("get Sx1262 data[%d]: %d\n", i, codec2_receive_buffer[i]);
-                                    // }
-
-                                    if (Codec2_Receive_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_BUFFER_SIZE)
+                                    if (is.all_flag.tx_done == true) // 发送完成
                                     {
-                                        Codec2_Receive_Buffer.insert(Codec2_Receive_Buffer.end(), codec2_receive_buffer.get(), codec2_receive_buffer.get() + length_buffer);
+                                        printf("Sx1262 send success\n");
+                                        Codec2_Send_Buffer.erase(Codec2_Send_Buffer.begin(), Codec2_Send_Buffer.begin() + data_size);
+                                        packet_id++;
+                                        break;
                                     }
                                 }
                             }
+
+                            timeout_count++;
+                            if (timeout_count > 500) // 超时
+                            {
+                                printf("Sx1262 send timeout\n");
+                                break;
+                            }
+
+                            delay(10);
                         }
+                    }
+                    else
+                    {
+                        printf("Sx1262 send fail\n");
+                    }
+
+                    // 大数据传输保证传输稳定
+                    delay(50);
+                }
+            }
+        }
+
+        break;
+
+        case Audio_Operating_Status::IDLE:
+            if (Sx126x_Gfsk_Receive(codec2_receive_buffer.get(), &codec2_receive_buffer_size) == true)
+            {
+                // 将接收到的数据转为字符串
+                std::string received_data(reinterpret_cast<char *>(codec2_receive_buffer.get()), codec2_receive_buffer_size);
+
+                std::stringstream ss(received_data);
+                std::string token;
+                std::vector<std::string> parts;
+
+                // 按 ':' 分割字符串
+                while (std::getline(ss, token, ':'))
+                {
+                    parts.push_back(token);
+                }
+
+                // 检查格式
+                if (parts.size() >= 4 && parts[0] == "CODEC2_TRANSMIT")
+                {
+                    uint32_t packet_id = std::stoul(parts[1]);
+                    uint32_t total_size = std::stoul(parts[2]);
+
+                    // parts[3] 包含音频数据
+                    std::string &codec2_data_str = parts[3];
+                    if (codec2_data_str.empty() == false)
+                    {
+                        // 获取音频数据
+                        const uint8_t *codec2_data = reinterpret_cast<const uint8_t *>(codec2_data_str.data());
+                        uint32_t codec2_data_length = codec2_data_str.size();
+
+                        printf("received packet id: %u, total size: %u, codec2_data size: %u bytes\n", packet_id, total_size, codec2_data_length);
+
+                        Codec2_Receive_Buffer_Size = 0;
+                        Codec2_Receive_Buffer.clear();
+
+                        if (Codec2_Receive_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_DATA_SIZE)
+                        {
+                            Codec2_Receive_Buffer.insert(Codec2_Receive_Buffer.end(), codec2_data, codec2_data + codec2_data_length);
+
+                            Codec2_Receive_Buffer_Size += codec2_data_length;
+
+                            Serial.printf("Audio_Operating_Status::SX1262_RECEIVE progress: %.01f%%\n",
+                                          (static_cast<float>(Codec2_Receive_Buffer_Size) / static_cast<float>(total_size)) * 100.0f);
+                        }
+                        else
+                        {
+                            printf("Codec2_Receive_Buffer is full (Codec2_Receive_Buffer size: %d)\n", Codec2_Receive_Buffer.size());
+                        }
+
+                        receive_packet_id = packet_id;
+                        last_receive_total_size = total_size;
+
+                        Audio_Operation_Current_Status = Audio_Operating_Status::SX1262_RECEIVE;
+                    }
+                }
+                else
+                {
+                    printf("codec2 receive format error\n");
+
+                    // for (size_t i = 0; i < codec2_receive_buffer_size; i++)
+                    // {
+                    //     printf("error receive[%d]: %c\n", i, codec2_receive_buffer[i]);
+                    // }
+                }
+            }
+
+            break;
+
+        case Audio_Operating_Status::SX1262_RECEIVE:
+        {
+            uint16_t timeout_count = 0;
+
+            while (1)
+            {
+                if (Sx126x_Gfsk_Receive(codec2_receive_buffer.get(), &codec2_receive_buffer_size) == true)
+                {
+                    // 将接收到的数据转为字符串
+                    std::string received_data(reinterpret_cast<char *>(codec2_receive_buffer.get()), codec2_receive_buffer_size);
+
+                    std::stringstream ss(received_data);
+                    std::string token;
+                    std::vector<std::string> parts;
+
+                    // 按 ':' 分割字符串
+                    while (std::getline(ss, token, ':'))
+                    {
+                        parts.push_back(token);
+                    }
+
+                    // 检查格式
+                    if (parts.size() >= 4 && parts[0] == "CODEC2_TRANSMIT")
+                    {
+                        uint32_t packet_id = std::stoul(parts[1]);
+                        uint32_t total_size = std::stoul(parts[2]);
+
+                        // parts[3] 包含音频数据
+                        std::string &codec2_data_str = parts[3];
+                        if (codec2_data_str.empty() == false)
+                        {
+                            // 获取音频数据
+                            const uint8_t *codec2_data = reinterpret_cast<const uint8_t *>(codec2_data_str.data());
+                            uint32_t codec2_data_length = codec2_data_str.size();
+
+                            printf("received packet id: %u, total size: %u, codec2_data size: %u bytes\n", packet_id, total_size, codec2_data_length);
+
+                            if (Codec2_Receive_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_DATA_SIZE)
+                            {
+                                Codec2_Receive_Buffer.insert(Codec2_Receive_Buffer.end(), codec2_data, codec2_data + codec2_data_length);
+
+                                Codec2_Receive_Buffer_Size += codec2_data_length;
+
+                                Serial.printf("Audio_Operating_Status::SX1262_RECEIVE progress: %.01f%%\n",
+                                              (static_cast<float>(Codec2_Receive_Buffer_Size) / static_cast<float>(total_size)) * 100.0f);
+                            }
+                            else
+                            {
+                                printf("Codec2_Receive_Buffer is full (Codec2_Receive_Buffer size: %d)\n", Codec2_Receive_Buffer.size());
+                            }
+
+                            receive_packet_id++;
+                            last_receive_total_size = total_size;
+
+                            if (Codec2_Receive_Buffer_Size == total_size)
+                            {
+                                printf("Audio_Operating_Status::SX1262_RECEIVE finish\n");
+                                printf("total receive bytes size: %d\n", Codec2_Receive_Buffer_Size);
+
+                                // flash.eraseChip();
+                                // flash.waitUntilReady();
+
+                                Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+                                Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+
+                                Audio_Operation_Current_Status = Audio_Operating_Status::DECODE;
+                                break;
+                            }
+
+                            timeout_count = 0;
+                        }
+                    }
+                    else
+                    {
+                        printf("codec2 receive format error\n");
+
+                        // for (size_t i = 0; i < codec2_receive_buffer_size; i++)
+                        // {
+                        //     printf("error receive[%d]: %c\n", i, codec2_receive_buffer[i]);
+                        // }
                     }
                 }
 
-                Sx1262->clear_irq_flag(Cpp_Bus_Driver::Sx126x::Irq_Mask_Flag::RX_DONE);
+                timeout_count++;
+                if (timeout_count > 500) // 超时
+                {
+                    printf("Audio_Operating_Status::SX1262_RECEIVE finish\n");
+                    printf("Sx1262 receive timeout\n");
+                    printf("receive packet size: %d\n", receive_packet_id);
+                    printf("missing receive bytes size: %d\n", last_receive_total_size - Codec2_Receive_Buffer_Size);
+                    printf("total receive bytes size: %d\n", Codec2_Receive_Buffer_Size);
+
+                    // flash.eraseChip();
+                    // flash.waitUntilReady();
+
+                    Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+                    Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+
+                    Audio_Operation_Current_Status = Audio_Operating_Status::DECODE;
+                    break;
+                }
+
+                delay(10);
             }
+        }
+
+        break;
+
+        default:
+            break;
         }
 
         delay(10);
@@ -516,158 +898,125 @@ void setup()
 
     Serial.println("Ciallo");
 
-    // 3.3V Power ON
     pinMode(RT9080_EN, OUTPUT);
     digitalWrite(RT9080_EN, HIGH);
-    delay(100);
-    digitalWrite(RT9080_EN, LOW);
-    delay(100);
-    digitalWrite(RT9080_EN, HIGH);
-    delay(100);
-
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
     pinMode(SPEAKER_EN_2, OUTPUT);
     digitalWrite(SPEAKER_EN_2, HIGH);
 
     pinMode(nRF52840_BOOT, INPUT_PULLUP);
+
+    pinMode(KEY_1, INPUT);
+
     pinMode(SX1262_INT, INPUT);
 
     pinMode(SX1262_RF_VC1, OUTPUT);
     pinMode(SX1262_RF_VC2, OUTPUT);
+
     delay(500);
+
+    while (flash.begin(&ZD25WQ32C) == false)
+    {
+        Serial.println("Flash initialization failed");
+        delay(1000);
+    }
+    Serial.println("Flash initialization successful");
+
+    // QSPI
+    flashTransport.setClockSpeed(32000000UL, 0);
+
+    flash.eraseChip();
+    flash.waitUntilReady();
 
     IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
-    xTaskCreate(&Codec2_Encode_Task, "Codec2_Encode_Task", 15 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Pdm_Task, "Pdm_Task", 1 * 1024, NULL, 3, NULL);
 
-    while (1)
-    {
-        if (Codec2_Init_Flag == true)
-        {
-            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT) == true)
-            {
-                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
-                Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
-                printf("start_transmit success\n");
-            }
-            else
-            {
-                printf("start_transmit fail\n");
-            }
-
-            break;
-        }
-    }
-
-    xTaskCreate(&Codec2_Decode_Task, "Codec2_Decode_Task", 15 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Codec2_Encode_Task, "Codec2_Encode_Task", 10 * 1024, NULL, 3, NULL);
+    xTaskCreate(&Codec2_Decode_Task, "Codec2_Decode_Task", 10 * 1024, NULL, 3, NULL);
 
     xTaskCreate(&Iis_Tx_Handle, "Iis_Tx_Handle", 1 * 1024, NULL, 5, NULL);
-
-    xTaskCreate(&Pdm_Task, "Pdm_Task", 1 * 1024, NULL, 3, NULL);
 
     xTaskCreate(&Sx1262_Task, "Sx1262_Task", 1 * 1024, NULL, 3, NULL);
 }
 
 void loop()
 {
-    if (IIS_Bus->get_write_event_flag() == true)
-    {
-        if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == true)
-        {
-            IIS_Bus->set_next_write_data(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count]);
-            Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
-        }
-    }
-
-    if (digitalRead(nRF52840_BOOT) == LOW)
+    if ((digitalRead(nRF52840_BOOT) == LOW) && (Audio_Operation_Current_Status == Audio_Operating_Status::IDLE))
     {
         delay(300);
 
-        Sx1262_Send_Flag = !Sx1262_Send_Flag;
-        if (Sx1262_Send_Flag == true)
+        Serial.println("audio operating start");
+
+        flash.eraseChip();
+        flash.waitUntilReady();
+
+        Pdm_Stream.clear();
+
+        Flash_Write_Sample_16khz_Int8_t_Audio_Index = 0;
+        Flash_Read_Sample_16khz_Int8_t_Audio_Index = 0;
+
+        Audio_Operation_Current_Status = Audio_Operating_Status::RECORDING;
+    }
+
+    if ((digitalRead(KEY_1) == LOW) &&
+        (Audio_Operation_Current_Status == Audio_Operating_Status::IDLE) &&
+        (Flash_Sample_8khz_Int8_t_Audio_Exist_Flag == true))
+    {
+        delay(300);
+
+        Serial.println("audio replay start");
+
+        Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
+
+        for (size_t i = 0; i < MAX_IIS_TX_BUFFER_COUNT; i++)
         {
-            IIS_Bus->stop_transmit();
-
-            Pdm_Stream.clear();
-            Codec2_Encode_Buffer.clear();
-            Codec2_Send_Buffer.clear();
-
-            printf("sx1262 send start\n");
+            Iis_Tx_Buffer_Full_Flag[(Current_Iis_Tx_Buffer_Count + i) % MAX_IIS_TX_BUFFER_COUNT] = false;
         }
-        else
+
+        Iis_Start_Transmit_Flag_Lock = false;
+
+        Audio_Operation_Current_Status = Audio_Operating_Status::PLAY;
+    }
+
+    if (Audio_Operation_Current_Status == Audio_Operating_Status::PLAY)
+    {
+        if (Iis_Start_Transmit_Flag == true)
         {
-            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, Iis_Data_Transmit_Size * MAX_IIS_DATA_TRANSMIT_COUNT) == true)
+            if (IIS_Bus->start_transmit(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count], nullptr, MAX_IIS_DATA_TRANSMIT_SIZE) == true)
             {
                 Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
                 Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
-                printf("start_transmit success\n");
+                printf("iis start_transmit success\n");
             }
             else
             {
-                printf("start_transmit fail\n");
+                printf("iis start_transmit fail\n");
+
+                Audio_Operation_Current_Status = Audio_Operating_Status::IDLE;
             }
 
-            Codec2_Decode_Buffer.clear();
-            Codec2_Receive_Buffer.clear();
+            Iis_Start_Transmit_Flag = false;
+        }
 
-            printf("sx1262 receive start\n");
+        if (IIS_Bus->get_write_event_flag() == true)
+        {
+            if (Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] == true)
+            {
+                IIS_Bus->set_next_write_data(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count]);
+                Iis_Tx_Buffer_Full_Flag[Current_Iis_Tx_Buffer_Count] = false;
+
+                Current_Iis_Tx_Buffer_Count = (Current_Iis_Tx_Buffer_Count + 1) % MAX_IIS_TX_BUFFER_COUNT;
+            }
         }
     }
 
     if (millis() > Cycle_Time)
     {
         printf("Pdm_Stream size: %d\n", Pdm_Stream.size());
-        printf("Codec2_Encode_Buffer: %d\n", Codec2_Encode_Buffer.size());
-        printf("Codec2_Decode_Buffer: %d\n", Codec2_Decode_Buffer.size());
-        printf("Codec2_Send_Buffer: %d\n", Codec2_Send_Buffer.size());
-        printf("Codec2_Receive_Buffer: %d\n", Codec2_Receive_Buffer.size());
-
         printf("Iis_Tx_Buffer: %d\n", static_cast<int16_t>(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count][0] >> 16));
-
-        // printf("\n");
-
-        // printf("Sx1262 ID: %s\n", Sx1262->get_device_id().c_str());
-
-        // printf("Sx1262 get current limit: %d\n", Sx1262->get_current_limit());
-
-        // switch (Sx1262->get_packet_type())
-        // {
-        // case Cpp_Bus_Driver::Sx126x::Packet_Type::GFSK:
-        //     printf("Sx1262 packet type: GFSK\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Packet_Type::LORA:
-        //     printf("Sx1262 packet type: LORA\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Packet_Type::LR_FHSS:
-        //     printf("Sx1262 packet type: LR_FHSS\n");
-        //     break;
-
-        // default:
-        //     break;
-        // }
-
-        // switch (Sx1262->parse_chip_mode_status(Sx1262->get_status()))
-        // {
-        // case Cpp_Bus_Driver::Sx126x::Chip_Mode_Status::STBY_RC:
-        //     printf("Sx1262 chip mode status: STBY_RC\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Chip_Mode_Status::STBY_XOSC:
-        //     printf("Sx1262 chip mode status: STBY_XOSC\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Chip_Mode_Status::FS:
-        //     printf("Sx1262 chip mode status: FS\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Chip_Mode_Status::RX:
-        //     printf("Sx1262 chip mode status: RX\n");
-        //     break;
-        // case Cpp_Bus_Driver::Sx126x::Chip_Mode_Status::TX:
-        //     printf("Sx1262 chip mode status: TX\n");
-        //     break;
-
-        // default:
-        //     break;
-        // }
+        printf("Audio_Operation_Current_Status: %d\n", Audio_Operation_Current_Status);
 
         Cycle_Time = millis() + 1000;
     }
