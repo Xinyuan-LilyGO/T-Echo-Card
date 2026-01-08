@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-08 17:43:37
+ * @LastEditTime: 2026-01-08 18:30:42
  * @License: GPL 3.0
  */
 
@@ -42,7 +42,7 @@
 #define FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET MAX_FLASH_SAMPLE_16KHZ_INT8_T_AUDIO_SIZE
 
 #define MAX_SX126X_TRANSMIT_HEADER_SIZE 30
-#define MAX_SX126X_TRANSMIT_DATA_SIZE 170
+#define MAX_SX126X_TRANSMIT_DATA_SIZE 8 * 20
 #define MAX_SX126X_TRANSMIT_SIZE MAX_SX126X_TRANSMIT_HEADER_SIZE + MAX_SX126X_TRANSMIT_DATA_SIZE
 
 enum class Audio_Operating_Status
@@ -392,6 +392,7 @@ void Codec2_Decode_Task(void *parameter)
                 else
                 {
                     Codec2_Receive_Buffer.clear();
+                    Serial.printf("Codec2_Receive_Buffer size not aligned\n");
                 }
             }
             else
@@ -581,8 +582,8 @@ void Sx1262_Task(void *parameter)
 
     Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
 
-    Sx1262->begin(5000000);
-    Sx1262->config_gfsk_params(850.0, 200.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_467000HZ, 140, 22);
+    Sx1262->begin(10000000);
+    Sx1262->config_gfsk_params(850.0, 200.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_234300HZ, 140, 22);
     Sx1262->clear_buffer();
 
     Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::RX);
@@ -732,6 +733,9 @@ void Sx1262_Task(void *parameter)
                         Codec2_Receive_Buffer_Size = 0;
                         Codec2_Receive_Buffer.clear();
 
+                        // 8的倍数对齐
+                        codec2_data_length = (codec2_data_length / 8) * 8;
+
                         if (Codec2_Receive_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_DATA_SIZE)
                         {
                             Codec2_Receive_Buffer.insert(Codec2_Receive_Buffer.end(), codec2_data, codec2_data + codec2_data_length);
@@ -802,6 +806,9 @@ void Sx1262_Task(void *parameter)
 
                             printf("received packet id: %u, total size: %u, codec2_data size: %u bytes\n", packet_id, total_size, codec2_data_length);
 
+                            // 8的倍数对齐
+                            codec2_data_length = (codec2_data_length / 8) * 8;
+
                             if (Codec2_Receive_Buffer.size() < MAX_CODEC2_TRANSMIT_BUFFER_COUNT * MAX_SX126X_TRANSMIT_DATA_SIZE)
                             {
                                 Codec2_Receive_Buffer.insert(Codec2_Receive_Buffer.end(), codec2_data, codec2_data + codec2_data_length);
@@ -826,8 +833,6 @@ void Sx1262_Task(void *parameter)
 
                                 flash.eraseChip();
                                 flash.waitUntilReady();
-                                printf("Waiting for flash to erase\n");
-                                delay(MAX_RECORD_AUDIO_TIME_SECONDS * 1000);
 
                                 Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
                                 Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
@@ -851,7 +856,7 @@ void Sx1262_Task(void *parameter)
                 }
 
                 timeout_count++;
-                if (timeout_count > 500) // 超时
+                if (timeout_count > 300) // 超时
                 {
                     printf("Audio_Operating_Status::SX1262_RECEIVE finish\n");
                     printf("Sx1262 receive timeout\n");
@@ -861,8 +866,6 @@ void Sx1262_Task(void *parameter)
 
                     flash.eraseChip();
                     flash.waitUntilReady();
-                    printf("Waiting for flash to erase\n");
-                    delay(MAX_RECORD_AUDIO_TIME_SECONDS * 1000);
 
                     Flash_Write_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
                     Flash_Read_Sample_8khz_Int8_t_Audio_Index = FLASH_SAMPLE_8KHZ_INT8_T_AUDIO_OFFSET;
