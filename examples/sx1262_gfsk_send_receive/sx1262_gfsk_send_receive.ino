@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-01-05 11:55:57
- * @LastEditTime: 2026-01-08 17:48:11
+ * @LastEditTime: 2026-01-09 12:12:22
  * @License: GPL 3.0
  */
 
@@ -94,8 +94,8 @@ void setup()
 
     Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
 
-    Sx1262->begin(10000000);
-    Sx1262->config_gfsk_params(850.0, 200.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_467000HZ, 140, 22);
+    Sx1262->begin(5000000);
+    Sx1262->config_gfsk_params(850.0, 100.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_467000HZ, 140, 22);
     Sx1262->clear_buffer();
 
     Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::RX);
