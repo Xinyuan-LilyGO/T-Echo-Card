@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-08 18:30:42
+ * @LastEditTime: 2026-01-09 12:14:56
  * @License: GPL 3.0
  */
 
@@ -582,8 +582,8 @@ void Sx1262_Task(void *parameter)
 
     Set_Sx1262_Rf_Switch(Sx1262_Rf_Switch_Status::RECEIVE);
 
-    Sx1262->begin(10000000);
-    Sx1262->config_gfsk_params(850.0, 200.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_234300HZ, 140, 22);
+    Sx1262->begin(5000000);
+    Sx1262->config_gfsk_params(850.0, 100.0, Cpp_Bus_Driver::Sx126x::Gfsk_Bw::BW_467000HZ, 140, 22);
     Sx1262->clear_buffer();
 
     Sx1262->start_gfsk_transmit(Cpp_Bus_Driver::Sx126x::Chip_Mode::RX);
@@ -691,7 +691,7 @@ void Sx1262_Task(void *parameter)
                     }
 
                     // 大数据传输保证传输稳定
-                    delay(100);
+                    delay(200);
                 }
             }
         }
@@ -905,8 +905,15 @@ void setup()
 
     Serial.println("Ciallo");
 
+    // 3.3V Power ON
     pinMode(RT9080_EN, OUTPUT);
     digitalWrite(RT9080_EN, HIGH);
+    delay(100);
+    digitalWrite(RT9080_EN, LOW);
+    delay(100);
+    digitalWrite(RT9080_EN, HIGH);
+    delay(100);
+    
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
     pinMode(SPEAKER_EN_2, OUTPUT);
@@ -1016,13 +1023,16 @@ void loop()
         }
     }
 
-    if (millis() > Cycle_Time)
+    if (Audio_Operation_Current_Status != Audio_Operating_Status::SX1262_RECEIVE)
     {
-        printf("Pdm_Stream size: %d\n", Pdm_Stream.size());
-        printf("Iis_Tx_Buffer: %d\n", static_cast<int16_t>(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count][0] >> 16));
-        printf("Audio_Operation_Current_Status: %d\n", Audio_Operation_Current_Status);
+        if (millis() > Cycle_Time)
+        {
+            printf("Pdm_Stream size: %d\n", Pdm_Stream.size());
+            printf("Iis_Tx_Buffer: %d\n", static_cast<int16_t>(Iis_Tx_Buffer[Current_Iis_Tx_Buffer_Count][0] >> 16));
+            printf("Audio_Operation_Current_Status: %d\n", Audio_Operation_Current_Status);
 
-        Cycle_Time = millis() + 1000;
+            Cycle_Time = millis() + 1000;
+        }
     }
 
     delay(10);
