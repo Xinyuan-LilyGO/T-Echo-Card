@@ -17,7 +17,7 @@
 #include "RadioLib.h"
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202512261429"
+#define SOFTWARE_LASTEDITTIME "202602051627"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
