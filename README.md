@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2025-10-16 14:56:05
+ * @LastEditTime: 2026-02-05 11:33:21
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Echo-Card</h1>
@@ -242,8 +242,13 @@ For pin definitions, please refer to the configuration file:
 
 <br />
 
-*   Q. Why does the board always fail to program when I directly use USB?
-*   A. Please press and release the RST (reset) chip button, wait for 1 second (this wait is essential), then press and release the RST button again. Once a new drive letter appears on the computer, it indicates that the device has entered the bootloader download mode, and programming can now proceed.
+* Q. Why does the board always fail to program when I directly use USB?
+* A. Please press and release the RST (reset) chip button, wait for 1 second (this wait is essential), then press and release the RST button again. Once a new drive letter appears on the computer, it indicates that the device has entered the bootloader download mode, and programming can now proceed.
+
+<br />
+
+* Q. How to use the NFC function?  
+* A. The NFC function currently can only be developed using the original manufacturer's SDK; the Nrf52 Arduino platform does not support it at the moment.
 
 <br />
 
