@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-10-11 13:45:15
- * @LastEditTime: 2026-02-05 11:32:55
+ * @LastEditTime: 2026-02-26 15:18:40
  * @License: GPL 3.0
 -->
 
@@ -91,12 +91,12 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 
 ### 4. 惯性传感器
 
-* 芯片：QCM5883P
+* 模块：ICM20948
 * 总线通信协议：IIC
 * 依赖库：
-    >[Adafruit_QMC5883P](https://github.com/adafruit/Adafruit_QMC5883P)   
+    >[ICM20948_WE](https://github.com/wollewald/ICM20948_WE)   
 * 相关资料：
-    >[QCM5883P](./information/QMC5883P.pdf)
+    >[ICM20948](./information/ICM20948.pdf)
 
 ### 5. Flash
 

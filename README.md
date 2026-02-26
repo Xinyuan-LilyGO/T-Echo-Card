@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2026-02-05 11:33:21
+ * @LastEditTime: 2026-02-26 15:19:08
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Echo-Card</h1>
@@ -72,7 +72,7 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 * Resolution: 128x64px
 * Display Type: OLED
 * Driver Chip: SSD1306
-* Bus Communication Protocol: I2C
+* Bus Communication Protocol: IIC
 * Dependent Libraries:
     >[Adafruit_BusIO](https://github.com/adafruit/Adafruit_BusIO)  
     >[Adafruit-GFX-Library](https://github.com/adafruit/Adafruit-GFX-Library)
@@ -90,12 +90,12 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 
 ### 4. IMU
 
-* Chip: QCM5883P
-* Bus Communication Protocol: I2C
+* Chip: ICM20948
+* Bus Communication Protocol: IIC
 * Dependent Libraries:
-    >[Adafruit_QMC5883P](https://github.com/adafruit/Adafruit_QMC5883P)   
+    >[ICM20948_WE](https://github.com/wollewald/ICM20948_WE)   
 * Related Information:
-    >[QCM5883P](./information/QMC5883P.pdf)
+    >[ICM20948](./information/ICM20948.pdf)
 
 ### 5. Flash
 
