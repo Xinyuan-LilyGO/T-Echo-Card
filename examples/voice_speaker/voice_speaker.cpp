@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-08-25 16:09:08
- * @LastEditTime: 2026-01-02 12:03:48
+ * @LastEditTime: 2026-02-26 09:46:13
  * @License: GPL 3.0
  */
 
@@ -26,7 +26,8 @@ bool Iis_Data_Convert_Wait = false;
 
 std::vector<uint32_t> Pdm_Rx_Stream;
 
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1,
+                                                              nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
 void Iis_Data_Convert(const void *input_data, void *out_buffer, size_t input_data_start_index, size_t byte)
 {
@@ -90,7 +91,7 @@ void setup()
 
     PDM.setGain(100);
 
-    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_128X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
+    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_128X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
     while (1)
     {

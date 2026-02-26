@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-06 15:53:42
+ * @LastEditTime: 2026-02-26 09:44:17
  * @License: GPL 3.0
  */
 
@@ -70,7 +70,8 @@ size_t Cycle_Time = 0;
 uint32_t Iis_Tx_Buffer[MAX_IIS_TX_BUFFER_COUNT][MAX_IIS_DATA_TRANSMIT_SIZE] = {0};
 
 auto SPI_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Spi>(SX1262_MOSI, SX1262_SCLK, SX1262_MISO, NRF_SPIM3, 0);
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1,
+                                                              nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
 auto Sx1262 = std::make_unique<Cpp_Bus_Driver::Sx126x>(SPI_Bus, Cpp_Bus_Driver::Sx126x::Chip_Type::SX1262, SX1262_BUSY, SX1262_CS, SX1262_RST);
 
@@ -537,7 +538,7 @@ void setup()
     pinMode(SX1262_RF_VC2, OUTPUT);
     delay(500);
 
-    IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
+    IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
     xTaskCreate(&Codec2_Encode_Task, "Codec2_Encode_Task", 15 * 1024, NULL, 3, NULL);
 

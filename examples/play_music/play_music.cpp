@@ -26,7 +26,8 @@ bool Iis_Data_Convert_Wait = false;
 
 size_t Play_Count = 0;
 
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1,
+                                                              nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
 
 // void Iis_Data_Convert(const uint16_t *input_data, uint32_t *out_buffer, size_t input_data_start_index, size_t length)
 // {
@@ -104,7 +105,7 @@ void setup()
     // 必须加上电延时
     delay(500);
 
-    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
+    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
     pinMode(nRF52840_BOOT, INPUT_PULLUP);
 }

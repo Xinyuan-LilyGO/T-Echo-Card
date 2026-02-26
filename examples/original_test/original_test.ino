@@ -274,7 +274,8 @@ ICM20948_WE myIMU = ICM20948_WE(&Wire, ICM20948_ADDRESS);
 
 auto Nrf52840_Gnss = std::make_unique<Cpp_Bus_Driver::Gnss>();
 
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1,
+                                                              nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
 
 Adafruit_NeoPixel Led_1(NUM_LEDS, WS2812_DATA_1, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel Led_2(NUM_LEDS, WS2812_DATA_2, NEO_GRB + NEO_KHZ800);
@@ -945,7 +946,7 @@ void System_Sleep(bool mode)
         pinMode(SPEAKER_EN_2, OUTPUT);
         digitalWrite(SPEAKER_EN_2, HIGH);
 
-        IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
+        IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
         Serial.begin(115200);
 
@@ -1345,7 +1346,7 @@ void setup()
     pinMode(SPEAKER_EN_2, OUTPUT);
     digitalWrite(SPEAKER_EN_2, HIGH);
 
-    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_STEREO);
+    IIS_Bus->begin(nrf_i2s_ratio_t ::NRF_I2S_RATIO_32X, SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
     Window_Init(Current_Window);
 

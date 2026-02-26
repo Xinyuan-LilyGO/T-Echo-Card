@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-12-30 09:49:37
- * @LastEditTime: 2026-01-09 12:14:56
+ * @LastEditTime: 2026-02-26 09:45:27
  * @License: GPL 3.0
  */
 
@@ -145,7 +145,8 @@ Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
 
 Adafruit_SPIFlash flash(&flashTransport);
 
-auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1);
+auto IIS_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Iis>(-1, SPEAKER_DATA, SPEAKER_WS_LRCK, SPEAKER_BCLK, -1,
+                                                              nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
 
 auto SPI_Bus = std::make_shared<Cpp_Bus_Driver::Hardware_Spi>(SX1262_MOSI, SX1262_SCLK, SX1262_MISO, NRF_SPIM3, 0);
 
@@ -913,7 +914,7 @@ void setup()
     delay(100);
     digitalWrite(RT9080_EN, HIGH);
     delay(100);
-    
+
     pinMode(SPEAKER_EN, OUTPUT);
     digitalWrite(SPEAKER_EN, HIGH);
     pinMode(SPEAKER_EN_2, OUTPUT);
@@ -940,7 +941,7 @@ void setup()
     // QSPI
     flashTransport.setClockSpeed(32000000UL, 0);
 
-    IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT, nrf_i2s_channels_t::NRF_I2S_CHANNELS_LEFT);
+    IIS_Bus->begin(nrf_i2s_ratio_t::NRF_I2S_RATIO_128X, IIS_SAMPLE_RATE, nrf_i2s_swidth_t::NRF_I2S_SWIDTH_16BIT);
 
     xTaskCreate(&Pdm_Task, "Pdm_Task", 1 * 1024, NULL, 3, NULL);
 
