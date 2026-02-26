@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-10-11 13:45:15
- * @LastEditTime: 2026-02-26 15:18:40
+ * @LastEditTime: 2026-02-26 15:27:29
  * @License: GPL 3.0
 -->
 
@@ -70,15 +70,13 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 
 ### 2. 屏幕
 
-* 分辨率：128x64px
+* 分辨率：72x40px
 * 屏幕类型：OLED
-* 驱动芯片：SSD1306
+* 驱动芯片：SSD1315
 * 总线通信协议：IIC
 * 依赖库：
     >[Adafruit_BusIO](https://github.com/adafruit/Adafruit_BusIO)  
     >[Adafruit-GFX-Library](https://github.com/adafruit/Adafruit-GFX-Library)
-* 相关资料：
-    >[SSD1306](./information/SSD1306.pdf)
 
 ### 3. GPS
 
