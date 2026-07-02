@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2025-10-11 13:45:15
- * @LastEditTime: 2026-02-26 15:27:29
+ * @LastEditTime: 2026-07-02 11:18:39
  * @License: GPL 3.0
 -->
 
@@ -252,4 +252,4 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 <br />
 
 ## 项目
-
+[project](./project)
