@@ -250,5 +250,12 @@ For pin definitions, please refer to the configuration file:
 
 <br />
 
+* Q. What should I do if my USB connector keeps coming loose?
+* A. A [3D structure model](./structure/h7910001.stl) for securing the USB connector is available here. You can print it using a 3D printer.
+
+![USB connector securing structure](./image/13.png)
+
+<br />
+
 ## Project
 [project](./project)
