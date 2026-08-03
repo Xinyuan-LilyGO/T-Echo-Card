@@ -77,6 +77,16 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
     >[Adafruit_BusIO](https://github.com/adafruit/Adafruit_BusIO)  
     >[Adafruit-GFX-Library](https://github.com/adafruit/Adafruit-GFX-Library)
 
+### S62F LoRa Hardware Configuration
+
+* Module: S62F (SX1262)
+* RF switch: T-Echo-Card uses AcSiP control mode A. The nRF52840 drives `RF_VC1` (`P0.27`) and `RF_VC2` (`P1.01`) directly. `DIO2` (`P0.05`) is routed separately and cannot replace these two control pins. Set `RF_VC1/RF_VC2` to `HIGH/LOW` for transmit and `LOW/HIGH` for receive.
+* TCXO: The embedded 32 MHz TCXO is controlled internally by SX1262 `DIO3`. Set `tcxoVoltage` explicitly to `3.0 V` when initializing the radio.
+* Regulator: `VREG` and `DCC_SW` are connected through a 15 uH inductor. Use the DC-DC regulator mode (`useRegulatorLDO = false`).
+* Related Information:
+    >[S62F](./information/S62F.pdf)
+    >[S62F Application Note](./information/S62F_ApplicationNote_Ver_D.pdf)
+
 ### 3. GPS
 
 * Chip: L76K
@@ -97,7 +107,7 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 
 ### 5. Flash
 
-* Chip: ZD25WQ32CEIGR
+* Compatible chips: ZD25WQ32C (`BA 60 16`) and ZD25Q32D (`BA 40 16`)
 * Bus Communication Protocol: SPI
 * Dependent Libraries:
     >[Adafruit_BusIO](https://github.com/adafruit/Adafruit_BusIO)  

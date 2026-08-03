@@ -6,6 +6,7 @@
 #include "Display_Fonts.h"
 #include <bluefruit.h>
 #include "Adafruit_SPIFlash.h"
+#include "zd25_flash_config.h"
 #include "cpp_bus_driver_library.h"
 #include "wiring.h"
 #include "Adafruit_NeoPixel.h"
@@ -48,24 +49,6 @@ static const uint32_t Local_MAC[2] =
         NRF_FICR->DEVICEID[0],
         NRF_FICR->DEVICEID[1],
 };
-
-SPIFlash_Device_t ZD25WQ32C =
-    {
-        total_size : (1UL << 22), /* 4 MiB */
-        start_up_time_us : 12000,
-        manufacturer_id : 0xBA,
-        memory_type : 0x60,
-        capacity : 0x16,
-        max_clock_speed_mhz : 104,
-        quad_enable_bit_mask : 0x02,
-        has_sector_protection : false,
-        supports_fast_read : true,
-        supports_qspi : true,
-        supports_qspi_writes : true,
-        write_status_register_split : false,
-        single_status_byte : false,
-        is_fram : false,
-    };
 
 struct BLE_Uart_Operator
 {
@@ -577,11 +560,11 @@ void Window_Init(System_Window Window)
         break;
     case System_Window::FLASH_TEST:
         // Custom_SPI.setClockDivider(SPI_CLOCK_DIV2); // dual frequency 32MHz
-        flash.begin();
+        flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT);
         flashTransport.setClockSpeed(32000000UL, 0);
         flashTransport.runCommand(0xAB); // Exit deep sleep mode
 
-        if (flash.begin(&ZD25WQ32C) == false)
+        if (flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT) == false)
         {
             log_printf("flash init fail\n");
             System_Op.init_flag.flash = false;
@@ -759,7 +742,9 @@ void Window_Init(System_Window Window)
         Custom_SPI_3.begin();
         Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
 
-        int16_t state = radio.begin();
+        int16_t state = radio.begin(
+            434.0, 125.0, 9, 7, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, 10, 8,
+            SX1262_TCXO_VOLTAGE, SX1262_USE_REGULATOR_LDO);
         if (state != RADIOLIB_ERR_NONE)
         {
             log_printf("sx1262 init fail\n");
@@ -1174,10 +1159,10 @@ void setup()
         log_printf("BLE_Uart_Initialization fail\n");
     }
 
-    flash.begin();
+    flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT);
     flashTransport.setClockSpeed(32000000UL, 0);
     flashTransport.runCommand(0xAB); // Exit deep sleep mode
-    if (flash.begin(&ZD25WQ32C) == false)
+    if (flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT) == false)
     {
         log_printf("flash init fail\n");
         System_Op.init_flag.flash = false;
@@ -1299,7 +1284,9 @@ void setup()
 
     Custom_SPI_3.begin();
     Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
-    int16_t state = radio.begin();
+    int16_t state = radio.begin(
+        434.0, 125.0, 9, 7, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, 10, 8,
+        SX1262_TCXO_VOLTAGE, SX1262_USE_REGULATOR_LDO);
     if (state != RADIOLIB_ERR_NONE)
     {
         log_printf("sx1262 init fail\n");

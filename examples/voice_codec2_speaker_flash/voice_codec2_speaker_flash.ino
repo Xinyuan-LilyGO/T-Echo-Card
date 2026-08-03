@@ -16,6 +16,7 @@
 #include <vector>
 #include <malloc.h>
 #include "Adafruit_SPIFlash.h"
+#include "zd25_flash_config.h"
 
 #define PDM_SAMPLE_RATE 16000
 #define IIS_SAMPLE_RATE 8000
@@ -48,24 +49,6 @@ enum class Audio_Operating_Status
     DECODE,
     PLAY,
 };
-
-SPIFlash_Device_t ZD25WQ32C =
-    {
-        total_size : (1UL << 22), /* 4 MiB */
-        start_up_time_us : 12000,
-        manufacturer_id : 0xBA,
-        memory_type : 0x60,
-        capacity : 0x16,
-        max_clock_speed_mhz : 104,
-        quad_enable_bit_mask : 0x02,
-        has_sector_protection : false,
-        supports_fast_read : true,
-        supports_qspi : true,
-        supports_qspi_writes : true,
-        write_status_register_split : false,
-        single_status_byte : false,
-        is_fram : false,
-    };
 
 struct Flash_Buffer_Struct
 {
@@ -448,7 +431,7 @@ void setup()
 
     delay(500);
 
-    while (flash.begin(&ZD25WQ32C) == false)
+    while (flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT) == false)
     {
         Serial.println("Flash initialization failed");
         delay(1000);
