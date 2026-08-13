@@ -155,6 +155,7 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 | [Flash_Speed_Test](./examples/Flash_Speed_Test) | <p align="center">![alt text][supported]  |  |  |
 | [gps](./examples/GPS) | <p align="center">![alt text][supported]  |  |  |
 | [IIC_Scan_2](./examples/IIC_Scan_2) | <p align="center">![alt text][supported]  |  |  |
+| [nfc_text_record](./examples/nfc_text_record) | <p align="center">![alt text][supported]  | NFC-A Type 2 Tag NDEF 文本记录 |  |
 | [original_test](./examples/original_test) |<p align="center">![alt text][supported]  | 出厂测试程序 |  |
 | [pdm](./examples/pdm) | <p align="center">![alt text][supported]  |  |  |
 | [play_music](./examples/play_music) | <p align="center">![alt text][supported]  |  |  |
@@ -166,11 +167,22 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 
 | Bootloader | Description | Picture |
 | ------  | ------  | ------ |
-| [bootloader](./bootloader/) |  |  |
+| [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) | T-Echo-Card 出厂引导程序示例，已启用 NFC 引脚功能 |  |
+| [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) | 用于清除旧配置并将 UICR NFCPINS 恢复为 NFC 天线功能的修复固件 |  |
 
 | Firmware | Description | Picture |
 | ------  | ------  | ------ |
 | [original_test](./firmware/[T-Echo-Card_V1.0][original_test]_firmware/)| 出厂测试程序 |  |
+
+#### NFC固件烧录顺序
+
+使用 NFC 功能前，请严格按照以下顺序烧录：
+
+1. 先烧录 [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) 目录中的最新引导程序，确保引导程序已经启用 NFC 引脚功能。
+2. 再烧录 [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) 目录中的修复固件，清除旧的 UICR NFC 引脚配置并将 NFCPINS 恢复为 NFC 天线功能。
+3. 最后烧录需要运行的应用层固件，例如 [nfc_text_record](./examples/nfc_text_record/) 示例。
+
+> `nfc_uicr_repair` 仅用于修复 UICR 配置，不是最终应用程序。修复完成后必须继续烧录应用层固件。请勿先烧录修复固件再启动旧版引导程序，否则旧版引导程序可能再次把 NFC 引脚配置为 GPIO。
 
 ### IDE和烧录
 
@@ -257,7 +269,7 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 <br />
 
 * Q. NFC功能如何使用？
-* A. NFC功能目前暂时只能使用原厂SDK进行开发，Nrf52 Arduino平台暂不支持。
+* A. 请先按照“NFC固件烧录顺序”更新引导程序并修复 UICR 配置，然后烧录 [nfc_text_record](./examples/nfc_text_record/) 示例。nRF52840 的 NFCT 外设仅支持 NFC-A Listen/Tag 模式，不支持 Poller/Reader 模式。
 
 <br />
 

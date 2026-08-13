@@ -154,6 +154,7 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 | [Flash_Speed_Test](./examples/Flash_Speed_Test) | <p align="center">![alt text][supported]  |  |  |
 | [gps](./examples/GPS) | <p align="center">![alt text][supported]  |  |  |
 | [IIC_Scan_2](./examples/IIC_Scan_2) | <p align="center">![alt text][supported]  |  |  |
+| [nfc_text_record](./examples/nfc_text_record) | <p align="center">![alt text][supported]  | NFC-A Type 2 Tag NDEF text record |  |
 | [original_test](./examples/original_test) |<p align="center">![alt text][supported]  | Product factory original testing |  |
 | [pdm](./examples/pdm) | <p align="center">![alt text][supported]  |  |  |
 | [play_music](./examples/play_music) | <p align="center">![alt text][supported]  |  |  |
@@ -165,11 +166,22 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 
 | Bootloader | Description | Picture |
 | ------  | ------  | ------ |
-| [bootloader](./bootloader/) |  |  |
+| [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) | T-Echo-Card factory bootloader example with the NFC pin function enabled |  |
+| [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) | Repair firmware that clears the legacy configuration and restores UICR NFCPINS to the NFC antenna function |  |
 
 | Firmware | Description | Picture |
 | ------  | ------  | ------ |
 | [original_test](./firmware/[T-Echo-Card_V1.0][original_test]_firmware/)| Product factory original testing |  |
+
+#### NFC Firmware Flashing Order
+
+Before using NFC, flash the firmware strictly in the following order:
+
+1. Flash the latest bootloader from [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) first. This bootloader enables the NFC pin function.
+2. Flash the repair firmware from [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) to clear the legacy UICR NFC pin configuration and restore NFCPINS to the NFC antenna function.
+3. Finally, flash the required application firmware, such as the [nfc_text_record](./examples/nfc_text_record/) example.
+
+> `nfc_uicr_repair` only repairs the UICR configuration and is not the final application. The application firmware must be flashed after the repair completes. Do not run an old bootloader after the repair, because it may configure the NFC pins as GPIO again.
 
 ### IDE and Flashing
 
@@ -256,7 +268,7 @@ For pin definitions, please refer to the configuration file:
 <br />
 
 * Q. How to use the NFC function?  
-* A. The NFC function currently can only be developed using the original manufacturer's SDK; the Nrf52 Arduino platform does not support it at the moment.
+* A. Follow the "NFC Firmware Flashing Order" to update the bootloader and repair the UICR configuration, then flash the [nfc_text_record](./examples/nfc_text_record/) example. The nRF52840 NFCT peripheral supports NFC-A Listen/Tag mode only and does not support Poller/Reader mode.
 
 <br />
 

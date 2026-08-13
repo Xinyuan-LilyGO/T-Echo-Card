@@ -7,3 +7,6 @@
 [submodule "libraries/codec2-arduino"]
 	path = libraries/codec2-arduino
 	url = https://github.com/blanu/codec2-arduino.git
+[submodule "libraries/arduino_nordicnrf52_nfc"]
+	path = libraries/arduino_nordicnrf52_nfc
+	url = https://github.com/Llgok/arduino_nordicnrf52_nfc.git
