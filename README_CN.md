@@ -176,16 +176,35 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 
 #### NFC固件烧录顺序
 
-使用 NFC 功能前，请严格按照以下顺序烧录：
+使用 NFC 功能前，请先运行主板中的 `original_test` 出厂固件并进入 NFC 测试界面，根据测试结果选择对应的处理方式。
 
-1. 先烧录 [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) 目录中的最新引导程序，确保引导程序已经启用 NFC 引脚功能。
-2. 再烧录 [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) 目录中的修复固件，清除旧的 UICR NFC 引脚配置并将 NFCPINS 恢复为 NFC 天线功能。
-3. 最后烧录需要运行的应用层固件，例如 [nfc_text_record](./examples/nfc_text_record/) 示例。
+##### NFC 测试正常的主板
+
+如果 NFC 测试界面能够正常启动，且手机能够读取 NFC 内容，说明主板已经使用支持 NFC 的新版 Bootloader。此类主板不需要更新 Bootloader，也不需要运行 `nfc_uicr_repair`；如需更新应用程序，可直接烧录目标应用固件。
+
+##### NFC 测试报错的主板
+
+出厂固件的 NFC 测试界面报错时，按照旧版 Bootloader 主板处理：
+
+1. 连续按下两次 RST 复位按键进入 UF2 模式。
+2. 将 [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) 目录中以 `update-` 开头的最新 Bootloader `.uf2` 文件复制到 UF2 磁盘，用支持 NFC 的新版 Bootloader 覆盖旧版本。
+3. 等待复制完成及设备自动重启，然后重新进入 UF2 模式。
+4. 烧录 [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) 目录中的修复固件，清除旧版 Bootloader 留下的 UICR NFC 引脚配置，并将 NFCPINS 恢复为 NFC 天线功能。
+5. 等待修复程序运行完成，然后重新进入 UF2 模式。
+6. 烧录需要运行的应用层固件，例如 [nfc_text_record](./examples/nfc_text_record/) 示例。
+
+##### 全新空片或没有任何程序的主板
+
+1. 连接 J-Link/SWD 调试器。
+2. 使用 J-Link/SWD 烧录 [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) 目录中的最新 Bootloader `.hex` 文件。
+3. 复位主板并确认能够正常进入 UF2 模式。
+4. 直接烧录需要运行的应用层固件。全新空片没有旧版 Bootloader 遗留的 UICR 配置，因此不需要运行 `nfc_uicr_repair`。
 
 > [!WARNING]
 > 烧录和运行 `nfc_uicr_repair` 期间必须保持稳定供电，严禁断电、复位、拔出 USB 或中断烧录。该程序会擦除并重写 UICR；如果操作过程中意外断电，可能导致 UICR 中与 Bootloader 相关的配置不完整，造成 Bootloader 无法启动或引导区异常。发生此问题时，可能需要使用 J-Link/SWD 重新擦除并烧录 Bootloader 才能恢复设备。
 
-> `nfc_uicr_repair` 仅用于修复 UICR 配置，不是最终应用程序。修复完成后必须继续烧录应用层固件。请勿先烧录修复固件再启动旧版引导程序，否则旧版引导程序可能再次把 NFC 引脚配置为 GPIO。
+> [!IMPORTANT]
+> `nfc_uicr_repair` 仅用于 NFC 测试报错且已经更新新版 Bootloader 的旧主板，不是最终应用程序。NFC 测试正常的主板和全新空片均不得执行此步骤。修复完成后必须继续烧录应用层固件。请勿先烧录修复固件再启动旧版 Bootloader，否则旧版 Bootloader 可能再次把 NFC 引脚配置为 GPIO。
 
 ### IDE和烧录
 
@@ -272,7 +291,7 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 <br />
 
 * Q. NFC功能如何使用？
-* A. 请先按照“NFC固件烧录顺序”更新引导程序并修复 UICR 配置，然后烧录 [nfc_text_record](./examples/nfc_text_record/) 示例。nRF52840 的 NFCT 外设仅支持 NFC-A Listen/Tag 模式，不支持 Poller/Reader 模式。
+* A. 请先运行 `original_test` 出厂固件检查 NFC：测试正常的主板不需要更新 Bootloader 或修复 UICR；仅当 NFC 测试报错时，才按照“NFC固件烧录顺序”更新 Bootloader 并运行 `nfc_uicr_repair`。全新空片使用 J-Link/SWD 烧录新版 Bootloader 后可直接烧录应用固件。nRF52840 的 NFCT 外设仅支持 NFC-A Listen/Tag 模式，不支持 Poller/Reader 模式。
 
 <br />
 

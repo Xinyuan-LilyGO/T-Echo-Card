@@ -175,16 +175,35 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 
 #### NFC Firmware Flashing Order
 
-Before using NFC, flash the firmware strictly in the following order:
+Before using NFC, run the `original_test` factory firmware, open the NFC test page, and select the appropriate procedure according to the result.
 
-1. Flash the latest bootloader from [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) first. This bootloader enables the NFC pin function.
-2. Flash the repair firmware from [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) to clear the legacy UICR NFC pin configuration and restore NFCPINS to the NFC antenna function.
-3. Finally, flash the required application firmware, such as the [nfc_text_record](./examples/nfc_text_record/) example.
+##### Boards That Pass the NFC Test
+
+If the NFC test page starts normally and a phone can read the NFC content, the board already has the NFC-enabled Bootloader. Do not update the Bootloader or run `nfc_uicr_repair` on this board. If an application update is required, flash the target application firmware directly.
+
+##### Boards That Report an NFC Test Error
+
+If the NFC test in the factory firmware reports an error, handle the board as one with the legacy Bootloader:
+
+1. Press RST twice to enter UF2 mode.
+2. Copy the latest Bootloader `.uf2` file whose name starts with `update-` from [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>) to the UF2 drive. This replaces the legacy Bootloader with the NFC-enabled version.
+3. Wait for copying to finish and for the board to restart, then enter UF2 mode again.
+4. Flash the repair firmware from [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) to clear the legacy UICR NFC pin configuration and restore NFCPINS to the NFC antenna function.
+5. After the repair finishes, enter UF2 mode again.
+6. Flash the required application firmware, such as the [nfc_text_record](./examples/nfc_text_record/) example.
+
+##### Blank Boards Without Any Firmware
+
+1. Connect a J-Link/SWD debug probe.
+2. Use J-Link/SWD to flash the latest Bootloader `.hex` file from [T-Echo-Card bootloader](<./bootloader/T-Echo-Card bootloader/>).
+3. Reset the board and confirm that it can enter UF2 mode.
+4. Flash the required application firmware directly. A blank board has no legacy Bootloader UICR configuration, so do not run `nfc_uicr_repair`.
 
 > [!WARNING]
 > Maintain stable power while flashing and running `nfc_uicr_repair`. Do not disconnect power or USB, reset the board, or interrupt flashing. This firmware erases and rewrites UICR; a power interruption may leave Bootloader-related UICR settings incomplete, preventing the Bootloader from starting or causing an invalid boot configuration. Recovery may require erasing and reflashing the Bootloader through J-Link/SWD.
 
-> `nfc_uicr_repair` only repairs the UICR configuration and is not the final application. The application firmware must be flashed after the repair completes. Do not run an old bootloader after the repair, because it may configure the NFC pins as GPIO again.
+> [!IMPORTANT]
+> `nfc_uicr_repair` is only for an existing board that reports an NFC test error and has already been updated to the new Bootloader. It is not the final application. Do not run it on a board that passes the NFC test or on a blank board. Flash the application firmware after the repair completes. Do not run a legacy Bootloader after the repair, because it may configure the NFC pins as GPIO again.
 
 ### IDE and Flashing
 
@@ -271,7 +290,7 @@ For pin definitions, please refer to the configuration file:
 <br />
 
 * Q. How to use the NFC function?  
-* A. Follow the "NFC Firmware Flashing Order" to update the bootloader and repair the UICR configuration, then flash the [nfc_text_record](./examples/nfc_text_record/) example. The nRF52840 NFCT peripheral supports NFC-A Listen/Tag mode only and does not support Poller/Reader mode.
+* A. First run the `original_test` factory firmware and check the NFC page. A board that passes the NFC test does not need a Bootloader update or UICR repair. Only if the NFC test reports an error should you update the Bootloader and run `nfc_uicr_repair` as described in "NFC Firmware Flashing Order." For a blank board, flash the new Bootloader through J-Link/SWD and then flash the application directly. The nRF52840 NFCT peripheral supports NFC-A Listen/Tag mode only and does not support Poller/Reader mode.
 
 <br />
 
