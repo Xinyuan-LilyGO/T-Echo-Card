@@ -182,6 +182,9 @@ T-Echo-Card是基于nRF52840芯片开发的低功耗板子，拥有太阳能充�
 2. 再烧录 [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) 目录中的修复固件，清除旧的 UICR NFC 引脚配置并将 NFCPINS 恢复为 NFC 天线功能。
 3. 最后烧录需要运行的应用层固件，例如 [nfc_text_record](./examples/nfc_text_record/) 示例。
 
+> [!WARNING]
+> 烧录和运行 `nfc_uicr_repair` 期间必须保持稳定供电，严禁断电、复位、拔出 USB 或中断烧录。该程序会擦除并重写 UICR；如果操作过程中意外断电，可能导致 UICR 中与 Bootloader 相关的配置不完整，造成 Bootloader 无法启动或引导区异常。发生此问题时，可能需要使用 J-Link/SWD 重新擦除并烧录 Bootloader 才能恢复设备。
+
 > `nfc_uicr_repair` 仅用于修复 UICR 配置，不是最终应用程序。修复完成后必须继续烧录应用层固件。请勿先烧录修复固件再启动旧版引导程序，否则旧版引导程序可能再次把 NFC 引脚配置为 GPIO。
 
 ### IDE和烧录

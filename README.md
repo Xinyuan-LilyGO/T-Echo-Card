@@ -181,6 +181,9 @@ Before using NFC, flash the firmware strictly in the following order:
 2. Flash the repair firmware from [nfc_uicr_repair](./bootloader/nfc_uicr_repair/) to clear the legacy UICR NFC pin configuration and restore NFCPINS to the NFC antenna function.
 3. Finally, flash the required application firmware, such as the [nfc_text_record](./examples/nfc_text_record/) example.
 
+> [!WARNING]
+> Maintain stable power while flashing and running `nfc_uicr_repair`. Do not disconnect power or USB, reset the board, or interrupt flashing. This firmware erases and rewrites UICR; a power interruption may leave Bootloader-related UICR settings incomplete, preventing the Bootloader from starting or causing an invalid boot configuration. Recovery may require erasing and reflashing the Bootloader through J-Link/SWD.
+
 > `nfc_uicr_repair` only repairs the UICR configuration and is not the final application. The application firmware must be flashed after the repair completes. Do not run an old bootloader after the repair, because it may configure the NFC pins as GPIO again.
 
 ### IDE and Flashing

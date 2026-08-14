@@ -1,3 +1,10 @@
+/*
+ * @Description: None
+ * @Author: LILYGO_L
+ * @Date: 2025-09-12 16:42:57
+ * @LastEditTime: 2025-09-22 15:28:52
+ * @License: GPL 3.0
+ */
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -16,9 +23,12 @@
 #include <vector>
 #include "ICM20948_WE.h"
 #include "RadioLib.h"
+#include "arduino_nordicnrf52_nfc_library.h"
+#include <nrf_sdm.h>
+#include <nrf_soc.h>
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202602051627"
+#define SOFTWARE_LASTEDITTIME "202608131730"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -34,6 +44,7 @@
 enum class System_Window
 {
     HOME = 0,
+    NFC_TEST,
     FLASH_TEST,
     BATTERY_TEST,
     IMU_TEST,
@@ -85,6 +96,21 @@ struct System_Operator
         bool lora = false;
 
     } init_flag;
+};
+
+struct Nfc_Test_Operator
+{
+    bool initialization_flag = false; // NFC 标签初始化状态。
+    bool read_flag = false;           // 手机或读卡器是否成功读取过标签。
+    uint32_t field_count = 0;         // 检测到射频场的累计次数。
+    uint32_t read_count = 0;          // NDEF 消息被完整读取的累计次数。
+};
+
+enum class Pdm_Hfclk_Owner
+{
+    NONE = 0,   // PDM 没有持有高频晶振。
+    DIRECT,     // PDM 通过 CLOCK 外设启动了高频晶振。
+    SOFTDEVICE, // PDM 通过 SoftDevice 申请了高频晶振。
 };
 
 struct Button_Triggered_Operator
@@ -239,6 +265,10 @@ BLEUart bleuart; // uart over ble
 BLE_Uart_Operator BLE_Uart_Op;
 System_Operator System_Op;
 Button_Triggered_Operator Button_Triggered_OP;
+Nfc_Test_Operator Nfc_Test_Op;
+Pdm_Hfclk_Owner Pdm_Hfclk_Owner_State = Pdm_Hfclk_Owner::NONE;
+
+static const char Nfc_Test_Text[] = "T-Echo-Card NFC Text Record";
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, SCREEN_RST);
 
@@ -551,12 +581,209 @@ bool SX1262_Set_Default_Parameters(String *assertion)
     return true;
 }
 
+/**
+ * @brief 启动 NFC Type 2 文本标签测试
+ * @return 启动成功返回 true，失败返回 false
+ */
+bool Nfc_Test_Start()
+{
+    uint8_t nfc_id[7] = {
+        0x08,
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[0]),
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[0] >> 8),
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[0] >> 16),
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[0] >> 24),
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[1]),
+        static_cast<uint8_t>(NRF_FICR->DEVICEID[1] >> 8),
+    };
+
+    NordicNfc.end();
+    Nfc_Test_Op.initialization_flag = false;
+    Nfc_Test_Op.read_flag = false;
+    Nfc_Test_Op.field_count = 0;
+    Nfc_Test_Op.read_count = 0;
+
+    if (!NordicNfc.setNfcId(nfc_id, sizeof(nfc_id)) ||
+        !NordicNfc.beginText(Nfc_Test_Text, "en"))
+    {
+        log_printf("nfc init fail: %s, driver code: 0x%lX\n",
+                   NordicNfc.lastErrorMessage(),
+                   static_cast<unsigned long>(NordicNfc.lastDriverErrorCode()));
+        NordicNfc.end();
+        return false;
+    }
+
+    Nfc_Test_Op.initialization_flag = true;
+    log_printf("nfc init successful\n");
+    log_printf("nfc text: %s\n", Nfc_Test_Text);
+    return true;
+}
+
+/**
+ * @brief 为 PDM 测试申请外部高频晶振
+ * @return 申请成功返回 true，失败返回 false
+ */
+bool Pdm_Hfclk_Acquire()
+{
+    if (Pdm_Hfclk_Owner_State != Pdm_Hfclk_Owner::NONE)
+    {
+        return true;
+    }
+
+    uint8_t softdevice_enabled = 0;
+    if (sd_softdevice_is_enabled(&softdevice_enabled) != NRF_SUCCESS)
+    {
+        return false;
+    }
+
+    if (softdevice_enabled != 0)
+    {
+        if (sd_clock_hfclk_request() != NRF_SUCCESS)
+        {
+            return false;
+        }
+
+        Pdm_Hfclk_Owner_State = Pdm_Hfclk_Owner::SOFTDEVICE;
+
+        uint32_t hfclk_running = 0;
+        do
+        {
+            if (sd_clock_hfclk_is_running(&hfclk_running) != NRF_SUCCESS)
+            {
+                (void)sd_clock_hfclk_release();
+                Pdm_Hfclk_Owner_State = Pdm_Hfclk_Owner::NONE;
+                return false;
+            }
+        } while (hfclk_running == 0);
+
+        return true;
+    }
+
+    const uint32_t expected_source =
+        CLOCK_HFCLKSTAT_SRC_Xtal << CLOCK_HFCLKSTAT_SRC_Pos;
+
+    if (((NRF_CLOCK->HFCLKSTAT & CLOCK_HFCLKSTAT_STATE_Msk) != 0) &&
+        ((NRF_CLOCK->HFCLKSTAT & CLOCK_HFCLKSTAT_SRC_Msk) == expected_source))
+    {
+        return true;
+    }
+
+    NRF_CLOCK->EVENTS_HFCLKSTARTED = 0;
+    NRF_CLOCK->TASKS_HFCLKSTART = 1;
+    Pdm_Hfclk_Owner_State = Pdm_Hfclk_Owner::DIRECT;
+
+    while (NRF_CLOCK->EVENTS_HFCLKSTARTED == 0)
+    {
+        // 等待外部高频晶振稳定。
+    }
+
+    return true;
+}
+
+/**
+ * @brief 释放 PDM 测试申请的外部高频晶振
+ */
+void Pdm_Hfclk_Release()
+{
+    if (Pdm_Hfclk_Owner_State == Pdm_Hfclk_Owner::SOFTDEVICE)
+    {
+        (void)sd_clock_hfclk_release();
+    }
+    else if (Pdm_Hfclk_Owner_State == Pdm_Hfclk_Owner::DIRECT)
+    {
+        NRF_CLOCK->TASKS_HFCLKSTOP = 1;
+    }
+
+    Pdm_Hfclk_Owner_State = Pdm_Hfclk_Owner::NONE;
+}
+
+/**
+ * @brief 完全停止 PDM 测试并释放中断与时钟资源
+ */
+void Pdm_Test_Stop()
+{
+    PDM.end();
+    PDM.onReceive(nullptr);
+
+    NRF_PDM->INTENCLR = UINT32_MAX;
+    NRF_PDM->EVENTS_STARTED = 0;
+    NRF_PDM->EVENTS_END = 0;
+    NRF_PDM->EVENTS_STOPPED = 0;
+    NVIC_ClearPendingIRQ(PDM_IRQn);
+
+    Pdm_Hfclk_Release();
+}
+
+/**
+ * @brief 完全停止 NFC 标签模拟并释放 NFCT 驱动
+ */
+void Nfc_Test_Stop()
+{
+    NordicNfc.end();
+    Nfc_Test_Op.initialization_flag = false;
+    CycleTime = 0;
+}
+
+/**
+ * @brief 处理 NFC 事件并刷新测试界面
+ */
+void Nfc_Test_Update()
+{
+    const uint32_t events = NordicNfc.takeEvents();
+
+    if ((events & NordicNrf52NfcTag::EventFieldOn) != 0)
+    {
+        Nfc_Test_Op.field_count++;
+        log_printf("nfc field detected\n");
+    }
+    if ((events & NordicNrf52NfcTag::EventDataRead) != 0)
+    {
+        Nfc_Test_Op.read_flag = true;
+        Nfc_Test_Op.read_count++;
+        log_printf("nfc text read successful\n");
+    }
+    if ((events & NordicNrf52NfcTag::EventFieldOff) != 0)
+    {
+        log_printf("nfc field removed\n");
+    }
+
+    if (millis() > CycleTime)
+    {
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.printf("NFC %c Type2", Nfc_Test_Op.initialization_flag ? 'Y' : 'N');
+        display.setCursor(0, 10);
+        display.printf("Field:%c Count:%lu", NordicNfc.isFieldPresent() ? 'Y' : 'N',
+                       static_cast<unsigned long>(Nfc_Test_Op.field_count));
+        display.setCursor(0, 20);
+        display.printf("Read:%c Count:%lu", Nfc_Test_Op.read_flag ? 'Y' : 'N',
+                       static_cast<unsigned long>(Nfc_Test_Op.read_count));
+        display.display();
+
+        log_printf("nfc running: %s, field: %s, read count: %lu\n",
+                   NordicNfc.isRunning() ? "yes" : "no",
+                   NordicNfc.isFieldPresent() ? "yes" : "no",
+                   static_cast<unsigned long>(Nfc_Test_Op.read_count));
+        CycleTime = millis() + 1000;
+    }
+}
+
 void Window_Init(System_Window Window)
 {
+    if (Window != System_Window::NFC_TEST)
+    {
+        // 非 NFC 测试界面不保留任何 NFC 标签模拟状态。
+        Nfc_Test_Stop();
+    }
+
     switch (Window)
     {
     case System_Window::HOME:
         System_Op.sleep_count = 0;
+        break;
+    case System_Window::NFC_TEST:
+        Nfc_Test_Op.initialization_flag = Nfc_Test_Start();
+        CycleTime = 0;
         break;
     case System_Window::FLASH_TEST:
         // Custom_SPI.setClockDivider(SPI_CLOCK_DIV2); // dual frequency 32MHz
@@ -709,6 +936,13 @@ void Window_Init(System_Window Window)
 
     case System_Window::MICROPHONE_TEST:
         Pdm_Rx_Stream.clear();
+
+        if (Pdm_Hfclk_Acquire() == false)
+        {
+            log_printf("pdm hfclk request failed\n");
+            break;
+        }
+
         PDM.setPins(MICROPHONE_DATA, MICROPHONE_SCLK, -1);
         // Pdm_Callback中断回调里面不能放printf
         PDM.onReceive([]()
@@ -733,6 +967,7 @@ void Window_Init(System_Window Window)
         if (PDM.begin(2, 16000) == false)
         {
             printf("failed to start pdm\n");
+            Pdm_Test_Stop();
             delay(100);
         }
         break;
@@ -797,6 +1032,9 @@ void Window_End(System_Window Window)
     case System_Window::HOME:
         CycleTime = 0;
         break;
+    case System_Window::NFC_TEST:
+        Nfc_Test_Stop();
+        break;
     case System_Window::FLASH_TEST:
         flashTransport.runCommand(0xB9); // Flash Deep Sleep
         flash.end();
@@ -823,13 +1061,16 @@ void Window_End(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::MICROPHONE_TEST:
-        PDM.end();
+        Pdm_Test_Stop();
 
         nrf_gpio_cfg_default(MICROPHONE_DATA);
         nrf_gpio_cfg_default(MICROPHONE_SCLK);
         CycleTime = 0;
         break;
     case System_Window::LORA_TEST:
+        // 释放 DIO1 对应的 GPIOTE 中断通道，避免中断输入阻止低功耗。
+        radio.clearDio1Action();
+        SX1262_OP.operation_flag = false;
         radio.sleep();
         Custom_SPI_3.end();
         nrf_gpio_cfg_default(SX1262_MISO);
@@ -853,6 +1094,9 @@ void System_Sleep(bool mode)
 {
     if (mode == true)
     {
+        // 休眠或关机前强制关闭 NFCT 外设、定时器和中断。
+        Nfc_Test_Stop();
+
         Serial.end();
 
         nrf_gpio_cfg_default(SCREEN_SDA);
@@ -907,6 +1151,7 @@ void System_Sleep(bool mode)
                 }
             }
         }
+
     }
     else
     {
@@ -1316,6 +1561,9 @@ void setup()
             log_printf("sx1262 failed to start receive\n");
         }
     }
+    // 开机自检结束后释放 DIO1 对应的 GPIOTE 中断通道。
+    radio.clearDio1Action();
+    SX1262_OP.operation_flag = false;
     radio.sleep();
     Custom_SPI_3.end();
     nrf_gpio_cfg_default(SX1262_MISO);
@@ -1540,6 +1788,9 @@ void loop()
         }
         break;
     }
+    case System_Window::NFC_TEST:
+        Nfc_Test_Update();
+        break;
     case System_Window::FLASH_TEST:
         if (millis() > CycleTime)
         {
