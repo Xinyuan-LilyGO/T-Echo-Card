@@ -141,6 +141,32 @@ T-Echo-Card is a low-power board developed based on the nRF52840 chip. It featur
 * Related Information:
     >[MP34DT05](./information/mp34dt05-a.pdf)
 
+### 9. Solar Panel
+
+* Electrical parameters under Standard Test Conditions (STC):
+
+| Parameter | Value |
+| --- | --- |
+| Maximum Power Pmax | 0.26 W |
+| Maximum Power Voltage Vmp | 4.95 V |
+| Maximum Power Current Imp | 0.054 A |
+| Open-Circuit Voltage Voc | 6.21 V |
+| Short-Circuit Current Isc | 0.059 A |
+
+* Simulated-light test condition: approximately 38,000 to 42,000 lux.
+* Sample test results: at approximately 38,000 lux, the open-circuit voltage was about 5.86 V. During the constant-voltage electronic-load test, the output was approximately 5.00 V, 0.058 A, and 0.29 W.
+* Electrical characteristics may vary between products. Refer to the actual test results; the tolerance range is -5% to +10%.
+
+<p align="center">
+  <img src="./image/17.png" alt="Solar panel electrical parameters" width="60%">
+</p>
+
+<p align="center">
+  <img src="./image/14.jpg" alt="Solar panel illuminance test" width="20%">
+  <img src="./image/15.jpg" alt="Solar panel load power test" width="20%">
+  <img src="./image/16.jpg" alt="Solar panel open-circuit voltage test" width="20%">
+</p>
+
 ## SoftwareDeployment
 
 ### Examples Support
