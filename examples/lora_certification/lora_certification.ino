@@ -2,7 +2,7 @@
  * @Description: T-Echo-Card 868 MHz LoRa 射频认证发包测试
  * @Author: LILYGO_L
  * @Date: 2026-09-07 11:01:11
- * @LastEditTime: 2026-09-07 11:28:07
+ * @LastEditTime: 2026-09-08 15:36:35
  * @License: GPL 3.0
  */
 #include <Arduino.h>
@@ -11,9 +11,9 @@
 #include "t_echo_card_config.h"
 
 // LoRa 射频测试参数。
-static constexpr float rf_frequency_mhz = 923.0;
+static constexpr float rf_frequency_mhz = 868.0;
 static constexpr float rf_bandwidth_khz = 500.0;
-static constexpr uint8_t lora_spreading_factor = 12;
+static constexpr uint8_t lora_spreading_factor = 5;
 static constexpr uint8_t lora_coding_rate = 8;
 static constexpr uint8_t lora_sync_word = 0xAB;
 static constexpr int8_t rf_output_power_dbm = 7;
@@ -21,8 +21,8 @@ static constexpr float rf_current_limit_ma = 140.0;
 static constexpr uint16_t lora_preamble_length = 16;
 static constexpr bool lora_crc_enabled = false;
 
-// 发包间隔和测试载荷长度。
-static constexpr uint32_t tx_interval_ms = 3000;
+// 目标占空比为 0.1%，使用 ppm 避免浮点计算误差。
+static constexpr uint32_t target_duty_cycle_ppm = 1000;
 static constexpr size_t payload_size = 32;
 
 // SX1262 使用 SPIM3 总线。
@@ -32,6 +32,8 @@ SX1262 radio = new Module(SX1262_CS, SX1262_DIO1, SX1262_RST, SX1262_BUSY, radio
 static uint8_t payload[payload_size];
 static uint32_t packet_counter = 0;
 static uint32_t next_transmission_ms = 0;
+static uint32_t tx_interval_ms = 0;
+static uint32_t time_on_air_us = 0;
 
 /**
  * @brief 输出射频驱动错误并停止测试程序。
@@ -65,6 +67,20 @@ static void preparePayload()
     payload[1] = static_cast<uint8_t>(packet_counter >> 16);
     payload[2] = static_cast<uint8_t>(packet_counter >> 8);
     payload[3] = static_cast<uint8_t>(packet_counter);
+}
+
+/**
+ * @brief 根据单包空中时间计算满足目标占空比的发包周期。
+ * @param packet_time_on_air_us 单包空中时间，单位为微秒。
+ * @return 两次发包开始时刻之间的最小间隔，单位为毫秒。
+ */
+static uint32_t calculateTransmissionInterval(uint32_t packet_time_on_air_us)
+{
+    const uint64_t interval_numerator =
+        static_cast<uint64_t>(packet_time_on_air_us) * 1000ULL;
+
+    return static_cast<uint32_t>(
+        (interval_numerator + target_duty_cycle_ppm - 1ULL) / target_duty_cycle_ppm);
 }
 
 /**
@@ -125,15 +141,45 @@ void setup()
         haltOnRadioError("CRC configuration", state);
     }
 
+    time_on_air_us = static_cast<uint32_t>(radio.getTimeOnAir(payload_size));
+    tx_interval_ms = calculateTransmissionInterval(time_on_air_us);
+
     Serial.println();
     Serial.println("T-Echo-Card LoRa certification test");
-    Serial.println("Frequency: 923.0 MHz");
-    Serial.println("Bandwidth: 500.0 kHz");
-    Serial.println("Spreading factor: 12");
-    Serial.println("Coding rate: 4/8");
-    Serial.println("Output power: 7 dBm");
-    Serial.println("Payload size: 32 bytes");
-    Serial.println("Transmit interval: 3000 ms");
+    Serial.print("Frequency: ");
+    Serial.print(rf_frequency_mhz, 1);
+    Serial.println(" MHz");
+    Serial.print("Bandwidth: ");
+    Serial.print(rf_bandwidth_khz, 1);
+    Serial.println(" kHz");
+    Serial.print("Spreading factor: ");
+    Serial.println(lora_spreading_factor);
+    Serial.print("Coding rate: 4/");
+    Serial.println(lora_coding_rate);
+    Serial.print("Sync word: 0x");
+    Serial.println(lora_sync_word, HEX);
+    Serial.print("Output power: ");
+    Serial.print(rf_output_power_dbm);
+    Serial.println(" dBm");
+    Serial.print("Current limit: ");
+    Serial.print(rf_current_limit_ma, 1);
+    Serial.println(" mA");
+    Serial.print("Preamble length: ");
+    Serial.println(lora_preamble_length);
+    Serial.print("CRC: ");
+    Serial.println(lora_crc_enabled ? "enabled" : "disabled");
+    Serial.print("Payload size: ");
+    Serial.print(payload_size);
+    Serial.println(" bytes");
+    Serial.print("Target duty cycle: ");
+    Serial.print(static_cast<float>(target_duty_cycle_ppm) / 10000.0F, 3);
+    Serial.println("%");
+    Serial.print("Time on air: ");
+    Serial.print(time_on_air_us);
+    Serial.println(" us");
+    Serial.print("Transmit interval: ");
+    Serial.print(tx_interval_ms);
+    Serial.println(" ms");
 
     next_transmission_ms = millis();
 }
