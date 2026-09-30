@@ -1,8 +1,8 @@
 /*
- * @Description: T-Echo-Card 868 MHz LoRa 射频认证发包测试
+ * @Description: T-Echo-Card LoRa 射频认证发包测试
  * @Author: LILYGO_L
  * @Date: 2026-09-07 11:01:11
- * @LastEditTime: 2026-09-08 15:36:35
+ * @LastEditTime: 2026-09-30 09:41:39
  * @License: GPL 3.0
  */
 #include <Arduino.h>
@@ -11,7 +11,7 @@
 #include "t_echo_card_config.h"
 
 // LoRa 射频测试参数。
-static constexpr float rf_frequency_mhz = 868.0;
+static constexpr float rf_frequency_mhz = 915.0;
 static constexpr float rf_bandwidth_khz = 500.0;
 static constexpr uint8_t lora_spreading_factor = 5;
 static constexpr uint8_t lora_coding_rate = 8;
@@ -21,7 +21,12 @@ static constexpr float rf_current_limit_ma = 140.0;
 static constexpr uint16_t lora_preamble_length = 16;
 static constexpr bool lora_crc_enabled = false;
 
-// 目标占空比为 0.1%，使用 ppm 避免浮点计算误差。
+// 915 MHz 按测试方反馈使用短包重复发送：开始到开始 40 ms，
+// 使 100 ms 观察窗口内可以看到至少两个周期，并为调度开销留出余量。
+// 这是认证测量配置，不表示通用 FCC 限值；其他频点保留原来的 0.1% 配置。
+static constexpr bool use_short_period_test = (rf_frequency_mhz == 915.0F);
+static constexpr uint32_t short_period_ms = 40;
+static constexpr uint32_t tx_setup_margin_us = 5000;
 static constexpr uint32_t target_duty_cycle_ppm = 1000;
 static constexpr size_t payload_size = 32;
 
@@ -70,12 +75,17 @@ static void preparePayload()
 }
 
 /**
- * @brief 根据单包空中时间计算满足目标占空比的发包周期。
+ * @brief 915 MHz 使用固定短周期，其他频点按原目标占空比计算周期。
  * @param packet_time_on_air_us 单包空中时间，单位为微秒。
  * @return 两次发包开始时刻之间的最小间隔，单位为毫秒。
  */
 static uint32_t calculateTransmissionInterval(uint32_t packet_time_on_air_us)
 {
+    if (use_short_period_test)
+    {
+        return short_period_ms;
+    }
+
     const uint64_t interval_numerator =
         static_cast<uint64_t>(packet_time_on_air_us) * 1000ULL;
 
@@ -144,6 +154,17 @@ void setup()
     time_on_air_us = static_cast<uint32_t>(radio.getTimeOnAir(payload_size));
     tx_interval_ms = calculateTransmissionInterval(time_on_air_us);
 
+    // 后续调整 SF、带宽或载荷时，避免单包过长导致 40 ms 周期无法实现。
+    if (use_short_period_test &&
+        (time_on_air_us + tx_setup_margin_us >= short_period_ms * 1000UL))
+    {
+        Serial.println("[SX1262] Packet airtime leaves insufficient margin for the 40 ms test period");
+        while (true)
+        {
+            delay(1000);
+        }
+    }
+
     Serial.println();
     Serial.println("T-Echo-Card LoRa certification test");
     Serial.print("Frequency: ");
@@ -171,8 +192,12 @@ void setup()
     Serial.print("Payload size: ");
     Serial.print(payload_size);
     Serial.println(" bytes");
-    Serial.print("Target duty cycle: ");
-    Serial.print(static_cast<float>(target_duty_cycle_ppm) / 10000.0F, 3);
+    Serial.print("Timing mode: ");
+    Serial.println(use_short_period_test ? "915 MHz short-period test" : "0.1% duty-cycle test");
+    Serial.print("Calculated duty cycle: ");
+    Serial.print(static_cast<float>(time_on_air_us) /
+                     (static_cast<float>(tx_interval_ms) * 10.0F),
+                 3);
     Serial.println("%");
     Serial.print("Time on air: ");
     Serial.print(time_on_air_us);
@@ -193,23 +218,18 @@ void loop()
         return;
     }
 
-    next_transmission_ms = current_ms + tx_interval_ms;
     preparePayload();
 
-    Serial.print("[SX1262] Transmitting packet ");
-    Serial.print(packet_counter);
-    Serial.print(" ... ");
-
+    // 周期从本次调用发送前开始计时，包含阻塞 transmit() 的耗时。
+    // 不在发送后再等待完整周期，也不追赶补发错过的周期。
+    next_transmission_ms = millis() + tx_interval_ms;
     const int16_t state = radio.transmit(payload, payload_size);
-    if (state == RADIOLIB_ERR_NONE)
+    if (state != RADIOLIB_ERR_NONE)
     {
-        Serial.println("success");
+        haltOnRadioError("transmission", state);
     }
-    else
-    {
-        Serial.print("failed, code ");
-        Serial.println(state);
-    }
+
+    // 正常发包不逐包打印，避免 USB 串口阻塞拉长测试周期。
 
     ++packet_counter;
 }
