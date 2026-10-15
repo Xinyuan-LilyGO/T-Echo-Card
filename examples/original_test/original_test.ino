@@ -22,13 +22,17 @@
 #include "PDM.h"
 #include <vector>
 #include "ICM20948_WE.h"
+#define make_unique sensorlib_make_unique
+#include "SensorQMI8658.hpp"
+#include "SensorQMC6309.hpp"
+#undef make_unique
 #include "RadioLib.h"
 #include "arduino_nordicnrf52_nfc_library.h"
 #include <nrf_sdm.h>
 #include <nrf_soc.h>
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202608131730"
+#define SOFTWARE_LASTEDITTIME "202610151504"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -284,6 +288,99 @@ Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
 Adafruit_SPIFlash flash(&flashTransport);
 
 ICM20948_WE myIMU = ICM20948_WE(&Wire, ICM20948_ADDRESS);
+SensorQMI8658 qmi8658;
+SensorQMC6309 qmc6309;
+bool use_qmi8658 = false;
+
+bool init_qmi8658_module()
+{
+    if (!qmi8658.begin(Wire, QMI8658_H_SLAVE_ADDRESS, QMI8658_SDA, QMI8658_SCL) ||
+        !qmc6309.begin(Wire, QMC6309_SLAVE_ADDRESS, QMC6309_SDA, QMC6309_SCL))
+    {
+        return false;
+    }
+    if (!qmi8658.configAccelerometer(SensorQMI8658::ACC_RANGE_2G,
+                                     SensorQMI8658::ACC_ODR_125Hz,
+                                     SensorQMI8658::LPF_MODE_3) ||
+        !qmi8658.configGyroscope(SensorQMI8658::GYR_RANGE_256DPS,
+                                  SensorQMI8658::GYR_ODR_112_1Hz,
+                                  SensorQMI8658::LPF_MODE_3) ||
+        !qmi8658.disableSyncSampleMode())
+    {
+        return false;
+    }
+    qmi8658.enableAccelerometer();
+    qmi8658.enableGyroscope();
+    return qmc6309.setOperationMode(OperationMode::CONTINUOUS_MEASUREMENT) &&
+           qmc6309.setFullScaleRange(MagFullScaleRange::FS_32G) &&
+           qmc6309.setOversamplingRate(MagOverSampleRatio::OSR_8) &&
+           qmc6309.setLowPassFilter(MagLowPassFilter::LPF_8) &&
+           qmc6309.setSetResetMode(
+               SensorQMC6309::MagSetResetMode::SET_AND_RESET_ON);
+}
+
+void read_qmi8658_module()
+{
+    IMUdata acc = {};
+    IMUdata gyr = {};
+    const bool motion_ready = qmi8658.getDataReady() &&
+        qmi8658.getAccelerometer(acc.x, acc.y, acc.z) &&
+        qmi8658.getGyroscope(gyr.x, gyr.y, gyr.z);
+    if (motion_ready)
+    {
+        log_printf("QMI8658 acc %.3f %.3f %.3f gyro %.3f %.3f %.3f\n",
+                   acc.x, acc.y, acc.z, gyr.x, gyr.y, gyr.z);
+    }
+    MagnetometerData mag;
+    const bool magnetic_read = qmc6309.readData(mag);
+    const bool magnetic_ready = magnetic_read && !mag.overflow;
+    if (magnetic_read)
+    {
+        log_printf("QMC6309 mag %.3f %.3f %.3f uT\n",
+                   mag.magnetic_field.x * 100.0f,
+                   mag.magnetic_field.y * 100.0f,
+                   mag.magnetic_field.z * 100.0f);
+    }
+
+    if (motion_ready)
+    {
+        // 使用加速度进行俯仰/横滚补偿后计算 QMC6309 航向角。
+        const float pitch = atan2f(-acc.x, sqrtf(acc.y * acc.y + acc.z * acc.z));
+        const float roll = atan2f(acc.y, acc.z);
+        float yaw = 0.0f;
+        if (magnetic_ready)
+        {
+            const float magnetic_x = mag.magnetic_field.x * 100.0f;
+            const float magnetic_y = mag.magnetic_field.y * 100.0f;
+            const float magnetic_z = mag.magnetic_field.z * 100.0f;
+            const float horizontal_x = magnetic_x * cosf(pitch) + magnetic_z * sinf(pitch);
+            const float horizontal_y = magnetic_x * sinf(roll) * sinf(pitch) +
+                                       magnetic_y * cosf(roll) -
+                                       magnetic_z * sinf(roll) * cosf(pitch);
+            yaw = atan2f(horizontal_y, horizontal_x) * 180.0f / M_PI;
+            if (yaw < 0.0f)
+            {
+                yaw += 360.0f;
+            }
+        }
+
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.printf("QMI p:%.01f", pitch * 180.0f / M_PI);
+        display.setCursor(0, 10);
+        display.printf("r:%.01f", roll * 180.0f / M_PI);
+        display.setCursor(0, 20);
+        if (magnetic_ready)
+        {
+            display.printf("y:%.01f", yaw);
+        }
+        else
+        {
+            display.printf("y:--");
+        }
+        display.display();
+    }
+}
 
 auto Nrf52840_Gnss = std::make_unique<Cpp_Bus_Driver::Gnss>();
 
@@ -824,16 +921,34 @@ void Window_Init(System_Window Window)
 
         if (myIMU.init() == false)
         {
-            log_printf("ICM20948 AG init fail\n");
-            System_Op.init_flag.imu = false;
+            if (init_qmi8658_module())
+            {
+                use_qmi8658 = true;
+                log_printf("QMI8658 + QMC6309 init successful\n");
+                System_Op.init_flag.imu = true;
+            }
+            else
+            {
+                log_printf("No supported IMU found\n");
+                System_Op.init_flag.imu = false;
+            }
         }
         else
         {
             myIMU.sleep(false);
             if (myIMU.initMagnetometer() == false)
             {
-                log_printf("ICM20948 M init fail\n");
-                System_Op.init_flag.imu = false;
+                if (init_qmi8658_module())
+                {
+                    use_qmi8658 = true;
+                    log_printf("QMI8658 + QMC6309 init successful\n");
+                    System_Op.init_flag.imu = true;
+                }
+                else
+                {
+                    log_printf("No supported IMU found\n");
+                    System_Op.init_flag.imu = false;
+                }
             }
             else
             {
@@ -1051,7 +1166,10 @@ void Window_End(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::IMU_TEST:
-        myIMU.sleep(true);
+        if (!use_qmi8658)
+        {
+            myIMU.sleep(true);
+        }
         CycleTime = 0;
         break;
     case System_Window::GPS_TEST:
@@ -1430,16 +1548,34 @@ void setup()
     Wire.setPins(ICM20948_SDA, ICM20948_SCL);
     if (myIMU.init() == false)
     {
-        log_printf("ICM20948 AG init fail\n");
-        System_Op.init_flag.imu = false;
+        if (init_qmi8658_module())
+        {
+            use_qmi8658 = true;
+            log_printf("QMI8658 + QMC6309 init successful\n");
+            System_Op.init_flag.imu = true;
+        }
+        else
+        {
+            log_printf("No supported IMU found\n");
+            System_Op.init_flag.imu = false;
+        }
     }
     else
     {
         myIMU.sleep(false);
         if (myIMU.initMagnetometer() == false)
         {
-            log_printf("ICM20948 M init fail\n");
-            System_Op.init_flag.imu = false;
+            if (init_qmi8658_module())
+            {
+                use_qmi8658 = true;
+                log_printf("QMI8658 + QMC6309 init successful\n");
+                System_Op.init_flag.imu = true;
+            }
+            else
+            {
+                log_printf("No supported IMU found\n");
+                System_Op.init_flag.imu = false;
+            }
         }
         else
         {
@@ -1525,7 +1661,10 @@ void setup()
             myIMU.setMagOpMode(AK09916_CONT_MODE_20HZ);
         }
     }
-    myIMU.sleep(true);
+    if (!use_qmi8658)
+    {
+        myIMU.sleep(true);
+    }
 
     Custom_SPI_3.begin();
     Custom_SPI_3.setClockDivider(SPI_CLOCK_DIV2);
@@ -1860,6 +1999,12 @@ void loop()
         {
             if (System_Op.init_flag.imu == true)
             {
+                if (use_qmi8658)
+                {
+                    read_qmi8658_module();
+                    CycleTime = millis() + 500;
+                    break;
+                }
                 myIMU.readSensor();
                 xyzFloat gValue;
                 myIMU.getGValues(&gValue);

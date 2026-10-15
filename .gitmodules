@@ -10,3 +10,6 @@
 [submodule "libraries/arduino_nordicnrf52_nfc"]
 	path = libraries/arduino_nordicnrf52_nfc
 	url = https://github.com/Llgok/arduino_nordicnrf52_nfc.git
+[submodule "libraries/sensorlib"]
+	path = libraries/sensorlib
+	url = https://github.com/lewisxhe/sensorlib.git
