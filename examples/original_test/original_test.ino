@@ -32,7 +32,7 @@
 #include <nrf_soc.h>
 
 #define SOFTWARE_NAME "original_test"
-#define SOFTWARE_LASTEDITTIME "202610151504"
+#define SOFTWARE_LASTEDITTIME "202611021827"
 #define BOARD_VERSION "v1.0"
 
 #define NUM_LEDS 1
@@ -286,6 +286,8 @@ Adafruit_FlashTransport_QSPI flashTransport(ZD25WQ32C_SCLK, ZD25WQ32C_CS,
                                             ZD25WQ32C_IO2, ZD25WQ32C_IO3);
 
 Adafruit_SPIFlash flash(&flashTransport);
+static uint32_t Flash_Direct_JedecID = 0xFFFFFF;
+static uint32_t Flash_Direct_SizeKB = 0;
 
 ICM20948_WE myIMU = ICM20948_WE(&Wire, ICM20948_ADDRESS);
 SensorQMI8658 qmi8658;
@@ -418,6 +420,37 @@ void log_printf(const char *fmt, ...)
     }
 
     va_end(args);
+}
+
+// 通过 0x9F 命令读取原始 JEDEC ID，并据此识别 Flash 型号。
+// 不调用 Adafruit_SPIFlash::begin()，避免其状态寄存器和四线模式配置影响识别结果。
+// NFC 私有 nrfx 头文件与核心驱动的成功码定义可能不同，导致传输返回值误报失败。
+// 保持上游库原样，记录传输返回值，但本测试仅以收到的 ID 字节匹配结果为准。
+// 此测试不验证存储区读写，也不代表已经完成 Flash 的完整初始化。
+static bool Flash_Identify_By_JEDEC(const char *stage)
+{
+    uint8_t id[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    flashTransport.begin();
+    const bool wake_ok = flashTransport.runCommand(0xAB);
+    delay(1);
+    const bool read_ok = flashTransport.readCommand(SFLASH_CMD_READ_JEDEC_ID, id, sizeof(id));
+    Flash_Direct_JedecID = ((uint32_t)id[0] << 16) | ((uint32_t)id[1] << 8) | id[2];
+    const bool supported = id[0] == 0xBA && id[2] == 0x16 &&
+                           (id[1] == 0x60 || id[1] == 0x40);
+    Flash_Direct_SizeKB = supported ? 4096 : 0;
+    flashTransport.runCommand(0xB9); // 识别完成后立即发送深度掉电命令。
+    delayMicroseconds(10);           // 等待命令执行后再关闭 QSPI。
+    flash.end();                     // 释放 QSPI，避免外设持续运行影响低功耗。
+
+    log_printf("[FLASH] %s JEDEC: wake=%d read=%d raw=%02X %02X %02X %02X id=0x%06lX; QSPI released\n",
+               stage, (int)wake_ok, (int)read_ok, id[0], id[1], id[2], id[3],
+               (unsigned long)Flash_Direct_JedecID);
+    log_printf("[FLASH] %s result: supported=%d (%s)\n", stage,
+               (int)supported,
+               supported ? (Flash_Direct_JedecID == 0xBA4016 ? "ZD25Q32D" : "ZD25WQ32C") : "unknown");
+    if (!read_ok && supported)
+        log_printf("[FLASH] %s note: JEDEC bytes match a supported chip although QSPI transport reported failure; chip identification uses the returned ID\n", stage);
+    return supported;
 }
 
 void Buzzer_Trigger(uint32_t delay_ms)
@@ -883,23 +916,11 @@ void Window_Init(System_Window Window)
         CycleTime = 0;
         break;
     case System_Window::FLASH_TEST:
-        // Custom_SPI.setClockDivider(SPI_CLOCK_DIV2); // dual frequency 32MHz
-        flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT);
-        flashTransport.setClockSpeed(32000000UL, 0);
-        flashTransport.runCommand(0xAB); // Exit deep sleep mode
-
-        if (flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT) == false)
-        {
-            log_printf("flash init fail\n");
-            System_Op.init_flag.flash = false;
-        }
-        else
-        {
-            log_printf("flash init successful\n");
-            System_Op.init_flag.flash = true;
-        }
+    {
+        System_Op.init_flag.flash = Flash_Identify_By_JEDEC("window");
 
         break;
+    }
 
     case System_Window::BATTERY_TEST:
         // Measure battery
@@ -1151,8 +1172,6 @@ void Window_End(System_Window Window)
         Nfc_Test_Stop();
         break;
     case System_Window::FLASH_TEST:
-        flashTransport.runCommand(0xB9); // Flash Deep Sleep
-        flash.end();
         nrf_gpio_cfg_default(ZD25WQ32C_SCLK);
         nrf_gpio_cfg_default(ZD25WQ32C_CS);
         nrf_gpio_cfg_default(ZD25WQ32C_IO0);
@@ -1522,22 +1541,7 @@ void setup()
         log_printf("BLE_Uart_Initialization fail\n");
     }
 
-    flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT);
-    flashTransport.setClockSpeed(32000000UL, 0);
-    flashTransport.runCommand(0xAB); // Exit deep sleep mode
-    if (flash.begin(ZD25WQ32_DEVICES, ZD25WQ32_DEVICE_COUNT) == false)
-    {
-        log_printf("flash init fail\n");
-        System_Op.init_flag.flash = false;
-    }
-    else
-    {
-        log_printf("flash init successful\n");
-        System_Op.init_flag.flash = true;
-    }
-    flashTransport.runCommand(0xB9); // Flash Deep Sleep
-    flash.end();
-
+    System_Op.init_flag.flash = Flash_Identify_By_JEDEC("setup");
     nrf_gpio_cfg_default(ZD25WQ32C_SCLK);
     nrf_gpio_cfg_default(ZD25WQ32C_CS);
     nrf_gpio_cfg_default(ZD25WQ32C_IO0);
@@ -1940,13 +1944,13 @@ void loop()
             {
                 display.printf("Flash Y");
                 display.setCursor(0, 10);
-                display.printf("%#X", flash.getJEDECID());
+                display.printf("%#lX", (unsigned long)Flash_Direct_JedecID);
                 display.setCursor(0, 20);
-                display.printf("%dkbytes", flash.size() / 1024);
+                display.printf("%lukbytes", (unsigned long)Flash_Direct_SizeKB);
 
                 log_printf("flash init successful\n");
-                log_printf("id: %#X\n", flash.getJEDECID());
-                log_printf("size: %d kbytes\n", flash.size() / 1024);
+                log_printf("id: %#lX\n", (unsigned long)Flash_Direct_JedecID);
+                log_printf("size: %lu kbytes\n", (unsigned long)Flash_Direct_SizeKB);
             }
             else
             {
